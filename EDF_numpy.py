@@ -64,3 +64,35 @@ def equilibrium(rho, ux, uy, uz):
     feq[18] = rhoe * (0.5 * (sq(u5) + c3) - u5) + rhom1e
 
     return feq
+
+# Extend to calculate EDF for a 3D domain
+def compute_edf_for_domain(domain_size):
+    """
+    Calculate the EDF for each cell in a 3D domain.
+    Arguments:
+        domain_size : int : The size of the cubic domain (e.g., 100 for a 100x100x100 cube).
+    Returns:
+        feq_domain : numpy array : EDF values for the entire domain (shape: domain_size^3 x 19).
+    """
+    # Initialize the domain
+    rho = np.ones((domain_size, domain_size, domain_size), dtype=np.float32)  # Density field (uniform 1)
+    ux = np.zeros((domain_size, domain_size, domain_size), dtype=np.float32)  # x-velocity field (uniform 0)
+    uy = np.zeros((domain_size, domain_size, domain_size), dtype=np.float32)  # y-velocity field (uniform 0)
+    uz = np.zeros((domain_size, domain_size, domain_size), dtype=np.float32)  # z-velocity field (uniform 0)
+
+    # Output EDF array (flattened domain for easier processing)
+    feq_domain = np.zeros((domain_size, domain_size, domain_size, 19), dtype=np.float32)
+
+    # Loop through each cell in the domain
+    for x in range(domain_size):
+        for y in range(domain_size):
+            for z in range(domain_size):
+                # Compute EDF for the current cell
+                feq_domain[x, y, z] = equilibrium(rho[x, y, z], ux[x, y, z], uy[x, y, z], uz[x, y, z])
+
+    return feq_domain
+
+# Example usage
+domain_size = 100
+feq_domain = compute_edf_for_domain(domain_size)
+print("EDF for the entire domain calculated.")

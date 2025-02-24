@@ -1,6 +1,9 @@
 import cupy as cp
 import matplotlib.pyplot as plt
 
+import time  # Import at the top of your script
+
+start_time = time.time()  # Record start time
 
 def compute_macro_quantities(f, obstacles, ex, ey):
     rho = f.sum(0)
@@ -70,8 +73,8 @@ def apply_forcing(rho, ux, uy, fx=0, fy=0, omega=1):
 
 
 def test_lb():
-    lx = 100
-    ly = 50
+    lx = 2000
+    ly = 2000
     ts = 15000
     gx = 1e-4
 
@@ -109,6 +112,11 @@ def test_lb():
         f = propogation(f, ex, ey, obstacles)
 
     # Move data back to CPU for visualization
+
+    end_time = time.time()  # Record end time
+    elapsed_time = end_time - start_time  # Compute elapsed time
+
+    print("MLUPS: " (lx*ly*ts*1e-6)/elapsed_time)
     plt.figure(1)
     plt.quiver(ux.get(), uy.get())  # Convert to NumPy before plotting
     plt.savefig("velocity_field.png", dpi=300)

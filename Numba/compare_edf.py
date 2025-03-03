@@ -47,7 +47,7 @@ def compute_edf(rho,u,nodetype):
 
 @cuda.jit
 def compute_edf_gpu(rho, u, nodetype, feq,ex,ey,w):
-    i, j = cuda.grid(2)
+    j, i = cuda.grid(2)
     ny, nx = nodetype.shape
     if i < ny and j < nx and nodetype[i, j] <= 0:
         for q in range(9):
@@ -67,7 +67,7 @@ def compute_edf_gpu(rho, u, nodetype, feq,ex,ey,w):
 
 def test_stream():
     nx = 10000
-    ny = 10000
+    ny = 20000
     rho = np.ones((ny, nx), dtype=dtype)
     u = np.ones((2, ny, nx), dtype=dtype)*1e-4
     nodetype = np.zeros((ny, nx), dtype=dtype)
@@ -95,7 +95,7 @@ def test_stream():
 
     #f_cpu[25] = 0
 
-    equal = np.allclose(f_gpu, f_cpu, atol=1e-30)
+    equal = np.allclose(f_gpu, f_cpu, atol=1e-17, rtol=0)
     print(equal)
 
 test_stream()

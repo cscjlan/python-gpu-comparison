@@ -118,14 +118,14 @@ def stream_and_bounce_gpu(f, f_old, nodetype, ex, ey):
               
 
 def test_lb():
-    nx = 2000
+    nx = 1000
     ny = 1000
-    niters = 3000
+    niters = 400000
     rho = np.ones((ny, nx), dtype=dtype)
     tau = np.ones((ny, nx), dtype=dtype)
     u = np.zeros((2, ny, nx), dtype=dtype)
     Fg = np.zeros((2, ny, nx), dtype=dtype)
-    Fg[0, :, :] = 1e-4
+    Fg[0, :, :] = 1e-7
     nodetype = np.zeros((ny, nx), dtype=dtype)
     nodetype[0, :] = 1
     nodetype[-1, :] = 1
@@ -162,11 +162,11 @@ def test_lb():
     print("MLUPS:", mlups)
     print("Time taken", t1 - t0)
 
-    plt.figure(1)
-    plt.quiver(u[0], u[1])
-    plt.savefig("guiver.png", dpi=300)
+    # plt.figure(1)
+    # plt.quiver(u[0], u[1])
+    # plt.savefig("guiver.png", dpi=300)
     plt.figure(2)
     plt.plot(u[0][:, int(nx / 2)])
-    plt.savefig("profile",dpi=300)
+    plt.savefig("profile_gpu",dpi=300)
 
 test_lb()

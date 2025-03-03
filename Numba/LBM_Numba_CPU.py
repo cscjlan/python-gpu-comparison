@@ -103,14 +103,14 @@ def stream_and_bounce(f,nodetype):
 
 def test_lb():
     import time
-    nx=1000
-    ny=500
-    niters=50000
+    nx=100
+    ny=100
+    niters=30000
     rho =np.ones((ny,nx), dtype = dtype)
     tau =np.ones((ny,nx), dtype = dtype)
     u  =np.zeros((2,ny,nx),dtype = dtype)
     Fg = np.zeros((2,ny,nx),dtype = dtype)
-    Fg[0,:,:]=1e-4
+    Fg[0,:,:]=1e-5
     nodetype  =np.zeros((ny,nx),dtype = dtype)
     nodetype[0,:]=1
     nodetype[-1,:]=1
@@ -125,13 +125,14 @@ def test_lb():
     print("MLUPS:",mlups)
     print("Time taken",t1-t0)
     if True:
-        plt.figure(1)
-        plt.quiver(u[0],u[1])
+        # plt.figure(1)
+        # plt.quiver(u[0],u[1])
         plt.figure(2)
         plt.plot(u[0][:,int(nx/2)])
-        plt.figure(3)
-        plt.imshow(u[0])
-        plt.show()
+        plt.savefig("profile",dpi=300)
+        # plt.figure(3)
+        # plt.imshow(u[0])
+        #plt.show()
 
 test_lb()
 

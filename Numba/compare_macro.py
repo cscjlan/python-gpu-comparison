@@ -56,7 +56,7 @@ def test_macro():
     u_d = cuda.to_device(u)
     nodetype_d = cuda.to_device(nodetype)
 
-    #f[10,10,3] +=1e-3
+    #f[10,10,3] +=1e-14
 
     threads_per_block = (16, 16)
     blocks_per_grid_x = (nx + threads_per_block[0] - 1) // threads_per_block[0]
@@ -73,8 +73,8 @@ def test_macro():
 
     #f_cpu[25] = 0
 
-    equal = np.allclose(rho_gpu, rho, atol=1e-30)
-    equal2 = np.allclose(u_gpu, u, atol=1e-30)
+    equal = np.allclose(rho_gpu, rho, atol=1e-17, rtol=0)
+    equal2 = np.allclose(u_gpu, u, atol=1e-17, rtol=0)
     print(equal,equal2)
 
 test_macro()

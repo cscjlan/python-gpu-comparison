@@ -20,7 +20,7 @@ w = cuda.to_device(w_host)
 
 @cuda.jit
 def compute_macro_vars_gpu(f, nodetype, rho, u):
-    i, j = cuda.grid(2)
+    j, i = cuda.grid(2)
     ny, nx = nodetype.shape
     if i < ny and j < nx and nodetype[i, j] <= 0:
         rho[i, j] = f[i, j, 0] + f[i, j, 1] + f[i, j, 2] + f[i, j, 3] + f[i, j, 4] + f[i, j, 5] + f[i, j, 6] + f[i, j, 7] + f[i, j, 8] 
@@ -35,7 +35,7 @@ def compute_macro_vars_gpu(f, nodetype, rho, u):
 
 @cuda.jit
 def compute_edf_gpu(rho, u, nodetype, feq,ex,ey,w):
-    i, j = cuda.grid(2)
+    j, i = cuda.grid(2)
     ny, nx = nodetype.shape
     if i < ny and j < nx and nodetype[i, j] <= 0:
         for q in range(9):
@@ -53,7 +53,7 @@ def compute_edf_gpu(rho, u, nodetype, feq,ex,ey,w):
 
 @cuda.jit
 def collide_gpu(f, rho, u, nodetype, tau, Fg):
-    i, j = cuda.grid(2)
+    j, i = cuda.grid(2)
     ny, nx = nodetype.shape
     if i < ny and j < nx and nodetype[i, j] <= 0:
         # Apply forcing
@@ -89,7 +89,7 @@ def collide_gpu(f, rho, u, nodetype, tau, Fg):
 
 @cuda.jit
 def update_f_old(f, f_old):
-    i, j = cuda.grid(2)
+    j, i = cuda.grid(2)
     ny, nx = f.shape[0] , f.shape[1]  
 
     if i < ny and j < nx:
@@ -99,7 +99,7 @@ def update_f_old(f, f_old):
 
 @cuda.jit
 def stream_and_bounce_gpu(f, f_old, nodetype, ex, ey):
-    i, j = cuda.grid(2)
+    j, i = cuda.grid(2)
     ny, nx = nodetype.shape
 
     if i < ny and j < nx and nodetype[i, j] <= 0:
@@ -167,6 +167,6 @@ def test_lb():
     # plt.savefig("guiver.png", dpi=300)
     plt.figure(2)
     plt.plot(u[0][:, int(nx / 2)])
-    plt.savefig("profile_gpu",dpi=300)
+    plt.savefig("profile_gpu_double",dpi=300)
 
 test_lb()

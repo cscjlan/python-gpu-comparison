@@ -97,6 +97,14 @@ def update_f_old(f, f_old):
             f_old[i, j, q] = f[i, j, q]
 
 
+# @cuda.jit
+# def cuda_info(j):
+#     j,i = cuda.grid(2)
+#     print (j)
+
+    
+
+
 @cuda.jit
 def stream_and_bounce_gpu(f, f_old, nodetype, ex, ey):
     j, i = cuda.grid(2)
@@ -118,7 +126,7 @@ def stream_and_bounce_gpu(f, f_old, nodetype, ex, ey):
               
 
 def test_lb():
-    nx = 2000
+    nx = 1000
     ny = 1000
     niters = 400000
     rho = np.ones((ny, nx), dtype=dtype)
@@ -132,6 +140,8 @@ def test_lb():
     f = np.zeros((ny, nx, 9), dtype=dtype)
     f_old = np.zeros((ny, nx, 9), dtype=dtype)
 
+    x = 0.0
+
     # GPU Memory Allocation
     f_d = cuda.to_device(f)
     f_old_d = cuda.to_device(f_old)
@@ -140,11 +150,14 @@ def test_lb():
     tau_d = cuda.to_device(tau)
     Fg_d = cuda.to_device(Fg)
     nodetype_d = cuda.to_device(nodetype)
+    x_d = cuda.to_device(x)
 
     threads_per_block = (16, 16)
     blocks_per_grid_x = (nx + threads_per_block[0] - 1) // threads_per_block[0]
     blocks_per_grid_y = (ny + threads_per_block[1] - 1) // threads_per_block[1]
     blocks_per_grid = (blocks_per_grid_x, blocks_per_grid_y)
+
+
 
     compute_edf_gpu[blocks_per_grid, threads_per_block](rho_d, u_d, nodetype_d, f_d,ex,ey,w)
     t0 = time.time()
@@ -161,6 +174,10 @@ def test_lb():
     mlups = (ny * nx * niters * 1e-6) / (t1 - t0)
     print("MLUPS:", mlups)
     print("Time taken", t1 - t0)
+
+    # cuda_info[blocks_per_grid, threads_per_block](x_d)
+    # xx = x_d.copy_to_host()
+    # print(xx)
 
     # plt.figure(1)
     # plt.quiver(u[0], u[1])

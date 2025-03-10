@@ -1,9 +1,10 @@
 import numpy as np
-import numba as nb
+import taichi as ti
 import matplotlib.pyplot as plt
 import time
-dtype = np.float64
-jit_parallel = nb.njit(nogil=True,parallel=True)
+npdtype = np.float64
+dtype = ti.f64
+ti.init(arch=ti.cpu)
 
 ex = np.array([0, 1, 0, 1, 1, -1, 0, -1, -1],dtype= dtype)
 ey = np.array([0, 0, 1, 1, -1, 0, -1, -1, 1],dtype= dtype)
@@ -103,8 +104,8 @@ def stream_and_bounce(f,nodetype):
 
 def test_lb():
     import time
-    nx=1000
-    ny=1000
+    nx=100
+    ny=100
     niters=30000
     rho =np.ones((ny,nx), dtype = dtype)
     tau =np.ones((ny,nx), dtype = dtype)
@@ -129,7 +130,7 @@ def test_lb():
         # plt.quiver(u[0],u[1])
         plt.figure(2)
         plt.plot(u[0][:,int(nx/2)])
-        plt.savefig("profile_Numba_cpu",dpi=300)
+        plt.savefig("profile",dpi=300)
         # plt.figure(3)
         # plt.imshow(u[0])
         #plt.show()

@@ -86,15 +86,20 @@ def collide_gpu(f, rho, u, nodetype, tau, Fg):
         f[i, j, 7] = (1.0 - (1.0 / tau[i, j])) * f[i, j, 7] + (1.0 / tau[i, j]) * feq7
         f[i, j, 8] = (1.0 - (1.0 / tau[i, j])) * f[i, j, 8] + (1.0 / tau[i, j]) * feq8
 
+        for q in range(1,5):
+                fswap = f[i,j,q]
+                f[i,j,q]=f[i,j,q+4]
+                f[i,j,q+4]=fswap
 
-@cuda.jit
-def update_f_old(f, f_old):
-    j, i = cuda.grid(2)
-    ny, nx = f.shape[0] , f.shape[1]  
 
-    if i < ny and j < nx:
-        for q in range(9):  # Copy all directions, including q=0
-            f_old[i, j, q] = f[i, j, q]
+# @cuda.jit
+# def update_f_old(f, f_old):
+#     j, i = cuda.grid(2)
+#     ny, nx = f.shape[0] , f.shape[1]  
+
+#     if i < ny and j < nx:
+#         for q in range(9):  # Copy all directions, including q=0
+#             f_old[i, j, q] = f[i, j, q]
 
 
 # @cuda.jit
@@ -111,17 +116,15 @@ def stream_and_bounce_gpu(f, f_old, nodetype, ex, ey):
     ny, nx = nodetype.shape
 
     if i < ny and j < nx and nodetype[i, j] <= 0:
-        for q in range(1, 9):  # Direction 0 does not need streaming
-            per_i = (i + int(ey[q])) % ny  # Periodic boundary
-            per_j = (j - int(ex[q])) % nx  # Periodic boundary
-            
-            if nodetype[per_i, per_j] <= 0:
-                f[i, j, q] = f_old[per_i, per_j, q]  # Normal streaming
-            else:  # Bounce-back condition
-                if q < 5:
-                    f[i, j, q] = f_old[i, j, q + 4]
-                else:
-                    f[i, j, q] = f_old[i, j, q - 4]
+        for q in range(1,5):
+                nexti = int(i-ey[q])
+                nextj = int(j+ex[q])
+                if nexti > ny-1: nexti = int(0)
+                if nextj > nx-1: nextj = int(0)                        
+                if nodetype[nexti,nextj]<=0:
+                    fswap = f[nexti,nextj,q]
+                    f[nexti,nextj,q] = f[i,j,q+4]
+                    f[i,j,q+4] = fswap
 
               
 
@@ -138,13 +141,13 @@ def test_lb():
     nodetype[0, :] = 1
     nodetype[-1, :] = 1
     f = np.zeros((ny, nx, 9), dtype=dtype)
-    f_old = np.zeros((ny, nx, 9), dtype=dtype)
+    #f_old = np.zeros((ny, nx, 9), dtype=dtype)
 
     x = 0.0
 
     # GPU Memory Allocation
     f_d = cuda.to_device(f)
-    f_old_d = cuda.to_device(f_old)
+    #f_old_d = cuda.to_device(f_old)
     rho_d = cuda.to_device(rho)
     u_d = cuda.to_device(u)
     tau_d = cuda.to_device(tau)
@@ -163,7 +166,7 @@ def test_lb():
     t0 = time.time()
     for i in range(niters):
         collide_gpu[blocks_per_grid, threads_per_block](f_d, rho_d, u_d, nodetype_d, tau_d, Fg_d)
-        update_f_old[blocks_per_grid, threads_per_block](f_d, f_old_d)
+        #update_f_old[blocks_per_grid, threads_per_block](f_d, f_old_d)
         stream_and_bounce_gpu[blocks_per_grid, threads_per_block](f_d,f_old_d, nodetype_d,ex,ey)
         compute_macro_vars_gpu[blocks_per_grid, threads_per_block](f_d, nodetype_d, rho_d, u_d)
     t1 = time.time()
@@ -184,6 +187,6 @@ def test_lb():
     # plt.savefig("guiver.png", dpi=300)
     plt.figure(2)
     plt.plot(u[0][:, int(nx / 2)])
-    plt.savefig("profile_gpu",dpi=300)
+    plt.savefig("profile_gpu_swap",dpi=300)
 
 test_lb()

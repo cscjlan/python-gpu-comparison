@@ -27,7 +27,7 @@ tau = ti.field(dtype=ti.f32, shape=(ny, nx))
 u = ti.field(dtype=ti.f32, shape=(2, ny, nx))
 Fg = ti.field(dtype=ti.f32, shape=(2, ny, nx))
 nodetype = ti.field(dtype=ti.i32, shape=(ny, nx))
-f = ti.field(dtype=ti.f32, shape=(ny, nx, 9))
+f = ti.field(dtype=ti.f32, shape=(9, ny, nx))
 #f_old = ti.field(dtype=ti.f32, shape=(ny, nx, 9))
 
 # Copy constant data to GPU fields
@@ -39,9 +39,10 @@ w.from_numpy(w_host)
 def compute_macro_vars_gpu():
     for i, j in ti.ndrange(ny, nx):
         if nodetype[i, j] <= 0:
-            rho_ij = f[i, j, 0] + f[i, j, 1] + f[i, j, 2] + f[i, j, 3] + f[i, j, 4] + f[i, j, 5] + f[i, j, 6] + f[i, j, 7] + f[i, j, 8] 
-            fdotex = f[i, j, 1] + f[i, j, 3] + f[i, j, 4] - f[i, j, 5] - f[i, j, 7] - f[i, j, 8]
-            fdotey = f[i, j, 2] + f[i, j, 3] - f[i, j, 4] - f[i, j, 6] - f[i, j, 7] + f[i, j, 8]
+            rho_ij = f[0, i, j] + f[1, i, j] + f[2, i, j] + f[3, i, j] + f[4, i, j] + f[5, i, j] + f[6, i, j] + f[7, i, j] + f[8, i, j]
+            fdotex = f[1, i, j] + f[3, i, j] + f[4, i, j] - f[5, i, j] - f[7, i, j] - f[8, i, j]
+            fdotey = f[2, i, j] + f[3, i, j] - f[4, i, j] - f[6, i, j] - f[7, i, j] + f[8, i, j]
+
             rho[i, j] = rho_ij
             u[0, i, j] = fdotex / rho_ij
             u[1, i, j] = fdotey / rho_ij
@@ -65,7 +66,7 @@ def compute_edf_gpu():
                 uy2 = u[1, i, j] * u[1, i, j]
                 u2 = ux2 + uy2
                 Termorder2 = (0.5 / es**4) * eu2 - (0.5 / es**2) * u2
-                f[i, j, q] = w[q] * rho[i, j] * (1 + Termorder1 + Termorder2)
+                f[q, i, j] = w[q] * rho[i, j] * (1 + Termorder1 + Termorder2)
 
 @ti.kernel
 def collide_gpu():
@@ -90,20 +91,20 @@ def collide_gpu():
                                 (1.0/12.0) * u[1, i, j] + (1.0/8.0) * (-u[0, i, j] + u[1, i, j])**2 + 1.0/36.0)
 
             # Collision step
-            f[i, j, 0] = (1.0 - (1.0 / tau[i, j])) * f[i, j, 0] + (1.0 / tau[i, j]) * feq0
-            f[i, j, 1] = (1.0 - (1.0 / tau[i, j])) * f[i, j, 1] + (1.0 / tau[i, j]) * feq1
-            f[i, j, 2] = (1.0 - (1.0 / tau[i, j])) * f[i, j, 2] + (1.0 / tau[i, j]) * feq2
-            f[i, j, 3] = (1.0 - (1.0 / tau[i, j])) * f[i, j, 3] + (1.0 / tau[i, j]) * feq3
-            f[i, j, 4] = (1.0 - (1.0 / tau[i, j])) * f[i, j, 4] + (1.0 / tau[i, j]) * feq4
-            f[i, j, 5] = (1.0 - (1.0 / tau[i, j])) * f[i, j, 5] + (1.0 / tau[i, j]) * feq5
-            f[i, j, 6] = (1.0 - (1.0 / tau[i, j])) * f[i, j, 6] + (1.0 / tau[i, j]) * feq6
-            f[i, j, 7] = (1.0 - (1.0 / tau[i, j])) * f[i, j, 7] + (1.0 / tau[i, j]) * feq7
-            f[i, j, 8] = (1.0 - (1.0 / tau[i, j])) * f[i, j, 8] + (1.0 / tau[i, j]) * feq8
+            f[0, i, j] = (1.0 - (1.0 / tau[i, j])) * f[0, i, j] + (1.0 / tau[i, j]) * feq0
+            f[1, i, j] = (1.0 - (1.0 / tau[i, j])) * f[1, i, j] + (1.0 / tau[i, j]) * feq1
+            f[2, i, j] = (1.0 - (1.0 / tau[i, j])) * f[2, i, j] + (1.0 / tau[i, j]) * feq2
+            f[3, i, j] = (1.0 - (1.0 / tau[i, j])) * f[3, i, j] + (1.0 / tau[i, j]) * feq3
+            f[4, i, j] = (1.0 - (1.0 / tau[i, j])) * f[4, i, j] + (1.0 / tau[i, j]) * feq4
+            f[5, i, j] = (1.0 - (1.0 / tau[i, j])) * f[5, i, j] + (1.0 / tau[i, j]) * feq5
+            f[6, i, j] = (1.0 - (1.0 / tau[i, j])) * f[6, i, j] + (1.0 / tau[i, j]) * feq6
+            f[7, i, j] = (1.0 - (1.0 / tau[i, j])) * f[7, i, j] + (1.0 / tau[i, j]) * feq7
+            f[8, i, j] = (1.0 - (1.0 / tau[i, j])) * f[8, i, j] + (1.0 / tau[i, j]) * feq8
 
             for q in ti.static(range(1,5)):
-                fswap = f[i,j,q]
-                f[i,j,q]=f[i,j,q+4]
-                f[i,j,q+4]=fswap
+                fswap = f[q, i,j]
+                f[q, i,j]=f[q+4,i,j]
+                f[q+4,i,j]=fswap
 
 
 # @ti.kernel
@@ -121,9 +122,9 @@ def stream_and_bounce_gpu():
                 if nexti > ny-1: nexti = int(0)
                 if nextj > nx-1: nextj = int(0)                        
                 if nodetype[nexti,nextj]<=0:
-                    fswap = f[nexti,nextj,q]
-                    f[nexti,nextj,q] = f[i,j,q+4]
-                    f[i,j,q+4] = fswap
+                    fswap = f[q,nexti,nextj]
+                    f[q,nexti,nextj] = f[q+4,i,j]
+                    f[q+4,i,j] = fswap
 
 def test_lb():
     # Initialize Fields
@@ -135,7 +136,7 @@ def test_lb():
     nodetype_np = np.zeros((ny, nx), dtype=np.int32)
     nodetype_np[0, :] = 1
     nodetype_np[-1, :] = 1
-    f_np = np.zeros((ny, nx, 9), dtype=dtype)
+    f_np = np.zeros((9, ny, nx), dtype=dtype)
     #f_old_np = np.zeros((ny, nx, 9), dtype=dtype)
 
     # Copy NumPy data to Taichi fields
@@ -168,6 +169,6 @@ def test_lb():
 
     plt.figure()
     plt.plot(u_np[0][:, int(nx / 2)])
-    plt.savefig("profile_taichi_swap_old_indexing.png", dpi=300)
+    plt.savefig("profile_taichi_swap.png", dpi=300)
 
 test_lb()

@@ -8,7 +8,7 @@ ti.init(arch=ti.cpu)  # Use 80% of GPU memory
 
 # Constants
 dtype = np.float64
-nx, ny = 1000, 1000
+nx, ny = 3000, 3000
 niters = 30000
 
 # Lattice velocity directions

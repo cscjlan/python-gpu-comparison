@@ -103,8 +103,8 @@ def stream_and_bounce(f,nodetype):
 
 def test_lb():
     import time
-    nx=1000
-    ny=1000
+    nx=3000
+    ny=3000
     niters=30000
     rho =np.ones((ny,nx), dtype = dtype)
     tau =np.ones((ny,nx), dtype = dtype)

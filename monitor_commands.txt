@@ -1,0 +1,3 @@
+htop //cpu checking
+
+watch -n 1 nvidia-smi   //gpu checking

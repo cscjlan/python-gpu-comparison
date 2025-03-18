@@ -8,8 +8,8 @@ ti.init(arch=ti.gpu)
 
 # Constants
 dtype = np.float32
-nz, nx, ny = 500, 500, 500
-niters = 400000
+nz, ny, nx = 1000, 300, 300
+niters = 100000
 
 # Lattice velocity directions
 ex_host = np.array([0, 1, 0, 0, 1, 1, 1, 1, 0, 0, -1, 0, 0, -1, -1, -1, -1, 0, 0], dtype=dtype)
@@ -26,8 +26,8 @@ w = ti.field(dtype=ti.f32, shape=19)
 
 rho = ti.field(dtype=ti.f32, shape=(nz, ny, nx))
 tau = ti.field(dtype=ti.f32, shape=(nz, ny, nx))
-u = ti.field(dtype=ti.f32, shape=(2, nz, ny, nx))
-Fg = ti.field(dtype=ti.f32, shape=(2, nz, ny, nx))
+u = ti.field(dtype=ti.f32, shape=(3, nz, ny, nx))
+Fg = ti.field(dtype=ti.f32, shape=(3, nz, ny, nx))
 nodetype = ti.field(dtype=ti.i32, shape=(nz, ny, nx))
 f = ti.field(dtype=ti.f32, shape=(19, nz, ny, nx))
 #f_old = ti.field(dtype=ti.f32, shape=(ny, nx, 9))
@@ -169,8 +169,8 @@ def test_lb():
     # Initialize Fields
     rho_np = np.ones((nz, ny, nx), dtype=dtype)
     tau_np = np.ones((nz, ny, nx), dtype=dtype)
-    u_np = np.zeros((2, nz, ny, nx), dtype=dtype)
-    Fg_np = np.zeros((2, nz, ny, nx), dtype=dtype)
+    u_np = np.zeros((3, nz, ny, nx), dtype=dtype)
+    Fg_np = np.zeros((3, nz, ny, nx), dtype=dtype)
     Fg_np[0, :, :, :] = 1e-7
     nodetype_np = np.zeros((nz, ny, nx), dtype=np.int32)
     nodetype_np[0, :, :] = 1
@@ -202,12 +202,18 @@ def test_lb():
     u_np = u.to_numpy()
     f_np = f.to_numpy()
 
-    mlups = (nz, ny * nx * niters * 1e-6) / (t1 - t0)
+    mlups = (nz * ny * nx * niters * 1e-6) / (t1 - t0)
     print("MLUPS:", mlups)
     print("Time taken:", t1 - t0)
 
+    #Fg_np[0][10:30, :, :] = 0
+
     plt.figure()
-    plt.plot(u_np[0][:, :, int(nx / 2)])
+    plt.plot(u_np[0][:, int(ny/2), int(nx/2)])
     plt.savefig("profile_taichi_swap_unroll.png", dpi=300)
+    
+    # plt.figure()
+    # plt.imshow(u_np[0][:,:,:])
+    # plt.savefig("field_taichi_swap_unroll.png", dpi=300)
 
 test_lb()

@@ -9,7 +9,7 @@ ti.init(arch=ti.gpu)
 # Constants
 dtype = np.float32
 nx, ny = 2000, 1000
-niters = 400000
+niters = 400
 
 # Lattice velocity directions
 ex_host = np.array([0, 1, 0, 1, 1, -1, 0, -1, -1], dtype=dtype)

@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <hip/hip_runtime.h>
+#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -25,7 +26,7 @@ static constexpr float inv_es_sq = 36.0f;
 
 __global__ void compute_macro_vars(size_t num_values, float *rho, float *u,
                                    float *f, int32_t *node_type) {
-    const size_t tid = threadIdx.x * blockIdx.x * blockDim.x;
+    const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
     const size_t stride = blockDim.x * gridDim.x;
 
     for (size_t index = tid; index < num_values; index += stride) {
@@ -44,22 +45,23 @@ __global__ void compute_macro_vars(size_t num_values, float *rho, float *u,
         const float f_dot_ey =
             f_i[2] + f_i[3] - f_i[4] - f_i[6] - f_i[7] + f_i[8];
 
-        const float node_type_f32 = static_cast<float>(node_type[index] <= 0);
-        const float inv_rho = rho_i == 0.0f ? 0.0f : 1.0f / rho_i;
+        const float s = static_cast<float>(node_type[index] <= 0);
+        const float inv_rho =
+            std::min(1.0f / rho_i, std::numeric_limits<float>::max());
 
-        rho[index] = node_type_f32 * rho_i;
-        u[index + 0 * num_values] = node_type_f32 * f_dot_ex * inv_rho;
-        u[index + 1 * num_values] = node_type_f32 * f_dot_ey * inv_rho;
+        rho[index] = s * rho_i;
+        u[index + 0 * num_values] = s * f_dot_ex * inv_rho;
+        u[index + 1 * num_values] = s * f_dot_ey * inv_rho;
     }
 }
 
 __global__ void compute_edf(size_t num_values, float *rho, float *u, float *f,
                             int32_t *node_type) {
-    const size_t tid = threadIdx.x * blockIdx.x * blockDim.x;
+    const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
     const size_t stride = blockDim.x * gridDim.x;
 
     for (size_t index = tid; index < num_values; index += stride) {
-        const float node_type_f32 = static_cast<float>(node_type[index] <= 0);
+        const float s = static_cast<float>(node_type[index] <= 0);
 
         static constexpr size_t N = 9;
 #pragma unroll N
@@ -70,7 +72,7 @@ __global__ void compute_edf(size_t num_values, float *rho, float *u, float *f,
             const float eyi = constants::ey[i];
 
             const float ux2 = u0 * u0;
-            const float uy2 = u0 * u0;
+            const float uy2 = u1 * u1;
             const float euxy = exi * eyi * u0 * u1;
             const float euxx = exi * exi * ux2;
             const float euyy = eyi * eyi * uy2;
@@ -82,31 +84,35 @@ __global__ void compute_edf(size_t num_values, float *rho, float *u, float *f,
             const float term_order2 =
                 0.5f * constants::inv_es_sq * (constants::inv_es_sq * eu2 - u2);
 
-            f[index + i * num_values] = node_type_f32 * constants::w[i] *
-                                        rho[index] *
-                                        (1.0f + term_order1 + term_order2);
+            const float f_old = f[index + i * num_values];
+            const float f_new = constants::w[i] * rho[index] *
+                                (1.0f + term_order1 + term_order2);
+
+            f[index + i * num_values] = s * f_new + (1.0f - s) * f_old;
         }
     }
 }
 
 __global__ void collide(size_t num_values, float *rho, float *tau, float *u,
                         float *fg, float *f, int32_t *node_type) {
-    const size_t tid = threadIdx.x * blockIdx.x * blockDim.x;
+    const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
     const size_t stride = blockDim.x * gridDim.x;
 
     for (size_t index = tid; index < num_values; index += stride) {
-        const float node_type_f32 = static_cast<float>(node_type[index] <= 0);
+        const float s = static_cast<float>(node_type[index] <= 0);
 
         const float rho_i = rho[index];
         const float tau_i = tau[index];
-        const float tau_per_rho = rho_i == 0.0f ? 0.0f : tau_i / rho_i;
+        const float tau_per_rho =
+            std::min(tau_i / rho_i, std::numeric_limits<float>::max());
 
         const size_t i = index + 0 * num_values;
         const size_t j = index + 1 * num_values;
-        u[i] += node_type_f32 * fg[i] * tau_per_rho;
-        u[j] += node_type_f32 * fg[j] * tau_per_rho;
-        const float u0 = u[i];
-        const float u1 = u[j];
+
+        const float u0 = u[i] + s * fg[i] * tau_per_rho;
+        const float u1 = u[j] + s * fg[j] * tau_per_rho;
+        u[i] = u0;
+        u[j] = u1;
 
         const float half_u0_sq = 0.5f * u0 * u0;
         const float half_u1_sq = 0.5f * u1 * u1;
@@ -127,61 +133,77 @@ __global__ void collide(size_t num_values, float *rho, float *tau, float *u,
         };
 
         const float rho_per_three = rho_i / 3.0f;
-        const float inv_tau = 1.0f / tau_i;
+        const float inv_tau =
+            std::min(1.0f / tau_i, std::numeric_limits<float>::max());
         const float tau_m_1 = tau_i - 1.0f;
 
         static constexpr size_t N = 9;
 #pragma unroll N
         for (size_t i = 0; i < N; i++) {
-            const float g = rho_per_three * (f_updated[i] + 0.333333333f);
-            f_updated[i] = inv_tau * (tau_m_1 * f[index + i * num_values] + g);
+            const float f_eq = rho_per_three * (f_updated[i] + 0.333333333f);
+            const float f_old = f[index + i * num_values];
+            const float f_new = inv_tau * (tau_m_1 * f_old + f_eq);
+
+            f_updated[i] = s * f_new + (1.0f - s) * f_old;
         }
 
-#pragma unroll N
-        for (size_t i = 0; i < N; i++) {
-            const size_t j = ((i + 3) & 7 + 1) * (i != 0);
-            f[index + i * num_values] += node_type_f32 * f_updated[j];
-        }
+        // clang-format off
+        // Update 1-8, such that pairs are swapped:
+        // 0 <--> 0
+        // 1 <--> 5
+        // 2 <--> 6
+        // 3 <--> 7
+        // 4 <--> 8
+        f[index + 0 * num_values] = s * f_updated[0] + (1.0f - s) * f_updated[0];
+        f[index + 1 * num_values] = s * f_updated[5] + (1.0f - s) * f_updated[1];
+        f[index + 2 * num_values] = s * f_updated[6] + (1.0f - s) * f_updated[2];
+        f[index + 3 * num_values] = s * f_updated[7] + (1.0f - s) * f_updated[3];
+        f[index + 4 * num_values] = s * f_updated[8] + (1.0f - s) * f_updated[4];
+        f[index + 5 * num_values] = s * f_updated[1] + (1.0f - s) * f_updated[5];
+        f[index + 6 * num_values] = s * f_updated[2] + (1.0f - s) * f_updated[6];
+        f[index + 7 * num_values] = s * f_updated[3] + (1.0f - s) * f_updated[7];
+        f[index + 8 * num_values] = s * f_updated[4] + (1.0f - s) * f_updated[8];
+        // clang-format on
     }
 }
 
 __global__ void stream_and_bounce(size_t nx, size_t ny, float *f,
                                   int32_t *node_type) {
-    const size_t tid = threadIdx.x * blockIdx.x * blockDim.x;
+    const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
     const size_t stride = blockDim.x * gridDim.x;
     const size_t num_values = nx * ny;
 
     for (size_t index = tid; index < num_values; index += stride) {
-        const float node_type_f32_1 = static_cast<float>(node_type[index] <= 0);
+        const float s1 = static_cast<float>(node_type[index] <= 0);
         // i over ny, j over nx
         const size_t i = index / nx;
         const size_t j = index % nx;
 
-#pragma unroll 5
-        for (size_t k = 0; k < 5; k++) {
+#pragma unroll 4
+        for (size_t k = 1; k < 5; k++) {
             const size_t next_i =
                 (ny + i - static_cast<size_t>(constants::ey[k])) % ny;
             const size_t next_j =
                 (nx + j + static_cast<size_t>(constants::ex[k])) % nx;
             const size_t index2 = next_i * nx + next_j;
-            const float node_type_f32_2 =
-                static_cast<float>(node_type[index2] <= 0);
+            const float s2 = static_cast<float>(node_type[index2] <= 0);
 
             const size_t linear_index1 = index + (k + 4) * num_values;
             const size_t linear_index2 = index2 + k * num_values;
             const size_t f1 = f[linear_index1];
             const size_t f2 = f[linear_index2];
 
-            const float interpolator = node_type_f32_1 * node_type_f32_2;
-            f[linear_index1] = interpolator * f2 + (1.0f - interpolator) * f1;
-            f[linear_index2] = interpolator * f1 + (1.0f - interpolator) * f2;
+            // s == 0 or s == 1
+            const float s = s1 * s2;
+            f[linear_index1] = s * f2 + (1.0f - s) * f1;
+            f[linear_index2] = s * f1 + (1.0f - s) * f2;
         }
     }
 }
 
 __global__ void initialize(size_t nx, size_t ny, float *rho, float *tau,
                            float *u, float *fg, float *f, int32_t *node_type) {
-    const size_t tid = threadIdx.x * blockIdx.x * blockDim.x;
+    const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
     const size_t stride = blockDim.x * gridDim.x;
     const size_t num_values = nx * ny;
 

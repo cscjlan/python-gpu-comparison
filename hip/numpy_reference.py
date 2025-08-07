@@ -96,28 +96,28 @@ def collide_gpu():
                 ])
 
             f_updated = np.array([
-                      -u2                       + 2.0/3.0,
-                       u2 - 1.5 * uy2   + u0    + 1.0/3.0,
-                       u2 - 1.5 * uy2   - u0    + 1.0/3.0,
-                       u2 - 1.5 * ux2   + u1    + 1.0/3.0,
-                       u2 - 1.5 * ux2   - u1    + 1.0/3.0,
-                -0.5 * u2 + 1.5 * sum_2 + sum_u + 1.0/3.0,
-                -0.5 * u2 + 1.5 * sum_2 - sum_u + 1.0/3.0,
-                -0.5 * u2 + 1.5 * dif_2 + dif_u + 1.0/3.0,
-                -0.5 * u2 + 1.5 * dif_2 - dif_u + 1.0/3.0,
+                      -u2                      + 0.333333333,
+                       u2 - 1.5 * uy2   + u0   ,
+                       u2 - 1.5 * uy2   - u0   ,
+                       u2 - 1.5 * ux2   + u1   ,
+                       u2 - 1.5 * ux2   - u1   ,
+                -0.5 * u2 + 1.5 * sum_2 + sum_u,
+                -0.5 * u2 + 1.5 * sum_2 - sum_u,
+                -0.5 * u2 + 1.5 * dif_2 + dif_u,
+                -0.5 * u2 + 1.5 * dif_2 - dif_u,
                 ])
 
             # Compute equilibrium distribution function explicitly
             rho_per_three = rho_ij * 0.3333333333
-            feq0 = multipliers[0] * rho_per_three * (f_updated[0])
-            feq1 = multipliers[1] * rho_per_three * (f_updated[1])
-            feq5 = multipliers[2] * rho_per_three * (f_updated[2])
-            feq2 = multipliers[3] * rho_per_three * (f_updated[3])
-            feq6 = multipliers[4] * rho_per_three * (f_updated[4])
-            feq3 = multipliers[5] * rho_per_three * (f_updated[5])
-            feq7 = multipliers[6] * rho_per_three * (f_updated[6])
-            feq4 = multipliers[7] * rho_per_three * (f_updated[7])
-            feq8 = multipliers[8] * rho_per_three * (f_updated[8])
+            feq0 = multipliers[0] * rho_per_three * (f_updated[0] + 0.333333333)
+            feq1 = multipliers[1] * rho_per_three * (f_updated[1] + 0.333333333)
+            feq5 = multipliers[2] * rho_per_three * (f_updated[2] + 0.333333333)
+            feq2 = multipliers[3] * rho_per_three * (f_updated[3] + 0.333333333)
+            feq6 = multipliers[4] * rho_per_three * (f_updated[4] + 0.333333333)
+            feq3 = multipliers[5] * rho_per_three * (f_updated[5] + 0.333333333)
+            feq7 = multipliers[6] * rho_per_three * (f_updated[6] + 0.333333333)
+            feq4 = multipliers[7] * rho_per_three * (f_updated[7] + 0.333333333)
+            feq8 = multipliers[8] * rho_per_three * (f_updated[8] + 0.333333333)
 
             # Collision step
             f[0, i, j] = (1.0 - inv_tau) * f[0, i, j] + inv_tau * feq0

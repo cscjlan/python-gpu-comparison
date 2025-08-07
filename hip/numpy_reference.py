@@ -124,16 +124,18 @@ def collide_gpu():
 
 def stream_and_bounce_gpu():
     for i, j in np.ndindex(ny, nx):
-        if nodetype[i, j] <= 0:
-            for q in range(1,5):
-                nexti = int(i-ey[q])
-                nextj = int(j+ex[q])
-                if nexti > ny-1: nexti = int(0)
-                if nextj > nx-1: nextj = int(0)                        
-                if nodetype[nexti,nextj]<=0:
-                    fswap = f[q,nexti,nextj]
-                    f[q,nexti,nextj] = f[q+4,i,j]
-                    f[q+4,i,j] = fswap
+        s1 = float(nodetype[i, j] <= 0)
+        for q in range(1,5):
+            nexti = (ny + int(i - ey[q])) % ny
+            nextj = (nx + int(j + ex[q])) % nx
+
+            s2 = float(nodetype[nexti, nextj] <= 0)
+            s = s1 * s2
+            f1 = f[q, nexti, nextj]
+            f2 = f[q + 4, i, j]
+
+            f[q, nexti, nextj] = (1.0 - s) * f1 + s * f2
+            f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
 
 def test_lb():
     compute_edf_gpu()

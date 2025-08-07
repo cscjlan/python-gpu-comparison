@@ -66,27 +66,30 @@ def collide_gpu():
     for i, j in np.ndindex(ny, nx):
         tau_ij = tau[i, j]
         if nodetype[i, j] <= 0:
-            u0 = u[0, i, j]
-            u1 = u[1, i, j]
-            u0 += Fg[0, i, j] * tau_ij / rho[i, j]
-            u1 += Fg[1, i, j] * tau_ij / rho[i, j]
+            u0 = u[0, i, j] + Fg[0, i, j] * tau_ij / rho[i, j]
+            u1 = u[1, i, j] + Fg[1, i, j] * tau_ij / rho[i, j]
 
             u[0, i, j] = u0
             u[1, i, j] = u1
 
             ux2 = u0 * u0
             uy2 = u1 * u1
+            sum_u = u0 + u1
+            dif_u = u0 - u1
+            sum_2 = sum_u * sum_u
+            dif_2 = dif_u * dif_u
+            u2 = ux2 + uy2
 
             # Compute equilibrium distribution function explicitly
-            feq0 = rho[i, j] * (-2.0/3.0  * ux2 - 2.0/3.0  * uy2                                                           + 4.0/9.0)
-            feq1 = rho[i, j] * (-1.0/6.0  * uy2 + 1.0/3.0  * ux2 + 1.0/3.0  * u0                                           + 1.0/9.0)
-            feq5 = rho[i, j] * (-1.0/6.0  * uy2 + 1.0/3.0  * ux2 - 1.0/3.0  * u0                                           + 1.0/9.0)
-            feq2 = rho[i, j] * (-1.0/6.0  * ux2 + 1.0/3.0  * uy2 + 1.0/3.0  * u1                                           + 1.0/9.0)
-            feq6 = rho[i, j] * (-1.0/6.0  * ux2 + 1.0/3.0  * uy2 - 1.0/3.0  * u1                                           + 1.0/9.0)
-            feq3 = rho[i, j] * (-1.0/24.0 * ux2 - 1.0/24.0 * uy2 + 1.0/12.0 * u0 + 1.0/12.0 * u1 + 1.0/8.0 * ( u0 + u1)**2 + 1.0/36.0)
-            feq4 = rho[i, j] * (-1.0/24.0 * ux2 - 1.0/24.0 * uy2 + 1.0/12.0 * u0 - 1.0/12.0 * u1 + 1.0/8.0 * ( u0 - u1)**2 + 1.0/36.0)
-            feq7 = rho[i, j] * (-1.0/24.0 * ux2 - 1.0/24.0 * uy2 - 1.0/12.0 * u0 - 1.0/12.0 * u1 + 1.0/8.0 * (-u0 - u1)**2 + 1.0/36.0)
-            feq8 = rho[i, j] * (-1.0/24.0 * ux2 - 1.0/24.0 * uy2 - 1.0/12.0 * u0 + 1.0/12.0 * u1 + 1.0/8.0 * (-u0 + u1)**2 + 1.0/36.0)
+            feq0 = 2.00 * rho[i, j] / 3.0 * (      -u2                       + 2.0/3.0)
+            feq1 = 1.00 * rho[i, j] / 3.0 * (       u2 - 1.5 * uy2   + u0    + 1.0/3.0)
+            feq5 = 1.00 * rho[i, j] / 3.0 * (       u2 - 1.5 * uy2   - u0    + 1.0/3.0)
+            feq2 = 1.00 * rho[i, j] / 3.0 * (       u2 - 1.5 * ux2   + u1    + 1.0/3.0)
+            feq6 = 1.00 * rho[i, j] / 3.0 * (       u2 - 1.5 * ux2   - u1    + 1.0/3.0)
+            feq3 = 0.25 * rho[i, j] / 3.0 * (-0.5 * u2 + 1.5 * sum_2 + sum_u + 1.0/3.0)
+            feq7 = 0.25 * rho[i, j] / 3.0 * (-0.5 * u2 + 1.5 * sum_2 - sum_u + 1.0/3.0)
+            feq4 = 0.25 * rho[i, j] / 3.0 * (-0.5 * u2 + 1.5 * dif_2 + dif_u + 1.0/3.0)
+            feq8 = 0.25 * rho[i, j] / 3.0 * (-0.5 * u2 + 1.5 * dif_2 - dif_u + 1.0/3.0)
 
             # Collision step
             f[0, i, j] = (1.0 - (1.0 / tau_ij)) * f[0, i, j] + (1.0 / tau_ij) * feq0

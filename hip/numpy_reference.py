@@ -71,6 +71,30 @@ def compute_edf_gpu():
             f_new = w[q] * rho[i, j] * (1.0 + term1 + term2)
             f[q, i, j] = s * f_new + (1.0 - s) * f_old
 
+def compute_edf_numpy():
+    u0 = u[0]
+    u1 = u[1]
+    ux2 = u0 * u0
+    uy2 = u1 * u1
+    uxy = u0 * u1
+    s = nodetype <= 0
+    inv_es_sq = 3.0
+
+    for q in range(9):
+        exq = ex[q]
+        eyq = ey[q]
+        euxy = exq * eyq * uxy
+        euxx = exq * exq * ux2
+        euyy = eyq * eyq * uy2
+        eu2 = 2.0 * euxy + euxx + euyy
+        u2 = ux2 + uy2
+
+        term1 = inv_es_sq * (exq * u0 + eyq * u1)
+        term2 = 0.5 * inv_es_sq * (inv_es_sq * eu2 - u2)
+        f_old = f[q]
+        f_new = w[q] * rho * (1.0 + term1 + term2)
+        f[q] = s * f_new + (1.0 - s) * f_old
+
 def collide_gpu():
     for i, j in np.ndindex(ny, nx):
         tau_ij = tau[i, j]
@@ -147,7 +171,7 @@ def stream_and_bounce_gpu():
             f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
 
 def test_lb():
-    compute_edf_gpu()
+    compute_edf_numpy()
 
     t0 = time.time()
     for i in range(niters):

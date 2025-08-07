@@ -67,9 +67,10 @@ def collide_gpu():
         tau_ij = tau[i, j]
         rho_ij = rho[i, j]
         inv_tau = 1.0 / tau_ij
+        tau_per_rho = np.min((tau_ij / rho_ij, sys.float_info.max))
         if nodetype[i, j] <= 0:
-            u0 = u[0, i, j] + Fg[0, i, j] * tau_ij / rho_ij
-            u1 = u[1, i, j] + Fg[1, i, j] * tau_ij / rho_ij
+            u0 = u[0, i, j] + Fg[0, i, j] * tau_per_rho
+            u1 = u[1, i, j] + Fg[1, i, j] * tau_per_rho
 
             u[0, i, j] = u0
             u[1, i, j] = u1

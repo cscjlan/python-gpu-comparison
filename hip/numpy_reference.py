@@ -87,48 +87,31 @@ def collide_gpu():
                 2.00,
                 1.00,
                 1.00,
-                1.00,
-                1.00,
                 0.25,
                 0.25,
+                1.00,
+                1.00,
                 0.25,
                 0.25,
                 ])
 
             f_updated = np.array([
-                      -u2                      + 0.333333333,
-                       u2 - 1.5 * uy2   + u0   ,
-                       u2 - 1.5 * uy2   - u0   ,
-                       u2 - 1.5 * ux2   + u1   ,
-                       u2 - 1.5 * ux2   - u1   ,
+                      -u2                      + 0.33333333,
+                       u2 - 1.5 * uy2   + u0,   
+                       u2 - 1.5 * ux2   + u1,   
                 -0.5 * u2 + 1.5 * sum_2 + sum_u,
-                -0.5 * u2 + 1.5 * sum_2 - sum_u,
                 -0.5 * u2 + 1.5 * dif_2 + dif_u,
+                       u2 - 1.5 * uy2   - u0   ,
+                       u2 - 1.5 * ux2   - u1   ,
+                -0.5 * u2 + 1.5 * sum_2 - sum_u,
                 -0.5 * u2 + 1.5 * dif_2 - dif_u,
                 ])
 
             # Compute equilibrium distribution function explicitly
             rho_per_three = rho_ij * 0.3333333333
-            feq0 = multipliers[0] * rho_per_three * (f_updated[0] + 0.333333333)
-            feq1 = multipliers[1] * rho_per_three * (f_updated[1] + 0.333333333)
-            feq5 = multipliers[2] * rho_per_three * (f_updated[2] + 0.333333333)
-            feq2 = multipliers[3] * rho_per_three * (f_updated[3] + 0.333333333)
-            feq6 = multipliers[4] * rho_per_three * (f_updated[4] + 0.333333333)
-            feq3 = multipliers[5] * rho_per_three * (f_updated[5] + 0.333333333)
-            feq7 = multipliers[6] * rho_per_three * (f_updated[6] + 0.333333333)
-            feq4 = multipliers[7] * rho_per_three * (f_updated[7] + 0.333333333)
-            feq8 = multipliers[8] * rho_per_three * (f_updated[8] + 0.333333333)
-
-            # Collision step
-            f[0, i, j] = (1.0 - inv_tau) * f[0, i, j] + inv_tau * feq0
-            f[1, i, j] = (1.0 - inv_tau) * f[1, i, j] + inv_tau * feq1
-            f[2, i, j] = (1.0 - inv_tau) * f[2, i, j] + inv_tau * feq2
-            f[3, i, j] = (1.0 - inv_tau) * f[3, i, j] + inv_tau * feq3
-            f[4, i, j] = (1.0 - inv_tau) * f[4, i, j] + inv_tau * feq4
-            f[5, i, j] = (1.0 - inv_tau) * f[5, i, j] + inv_tau * feq5
-            f[6, i, j] = (1.0 - inv_tau) * f[6, i, j] + inv_tau * feq6
-            f[7, i, j] = (1.0 - inv_tau) * f[7, i, j] + inv_tau * feq7
-            f[8, i, j] = (1.0 - inv_tau) * f[8, i, j] + inv_tau * feq8
+            for k in range(9):
+                f_updated[k] = multipliers[k] * rho_per_three * (f_updated[k] + 0.3333333)
+                f[k, i, j] = (1.0 - inv_tau) * f[k, i, j] + inv_tau * f_updated[k]
 
             for q in range(1,5):
                 fswap = f[q, i,j]

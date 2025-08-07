@@ -107,23 +107,20 @@ def collide_gpu():
             -0.5 * u2 + 1.5 * dif_2 - dif_u,
             ])
 
-        # Compute equilibrium distribution function explicitly
         rho_per_three = rho_ij * 0.3333333333
-        for k in range(9):
-            f_updated[k] = multipliers[k] * rho_per_three * (f_updated[k] + 0.3333333)
-            f_old = f[k, i, j]
-            f_new = (1.0 - inv_tau) * f_old  + inv_tau * f_updated[k]
-            f_updated[k] = s * f_new + (1.0 - s) * f_old
-
-        for k in range(9):
+        for q in range(9):
             # Mapping of indices:
             # 0 <--> 0
             # 1 <--> 5
             # 2 <--> 6
             # 3 <--> 7
             # 4 <--> 8
-            l = ((k + 3 & 7) + 1) * int(k != 0)
-            f[l, i, j] = f_updated[k]
+            l = ((q + 3 & 7) + 1) * int(q != 0)
+
+            f_eq = multipliers[l] * rho_per_three * (f_updated[l] + 0.3333333)
+            f_lij = f[l, i, j]
+            f_new = (1.0 - inv_tau) * f_lij + inv_tau * f_eq
+            f[q, i, j] = (1.0 - s) * f_lij + s * f_new
 
 def stream_and_bounce_gpu():
     for i, j in np.ndindex(ny, nx):

@@ -24,7 +24,7 @@ nodetype[0, :] = 1
 nodetype[-1, :] = 1
 f = np.zeros((9, ny, nx), dtype=dtype)
 
-def compute_macro_vars_gpu():
+def compute_macro_vars():
     for i, j in np.ndindex(ny, nx):
         f_ij = np.array([f[0, i, j], f[1, i, j], f[2, i, j], f[3, i, j], f[4, i, j], f[5, i, j], f[6, i, j], f[7, i, j], f[8, i, j]])
         s = float(nodetype[i, j] <= 0)
@@ -37,6 +37,15 @@ def compute_macro_vars_gpu():
         rho[i, j] = s * rho_ij
         u[0, i, j] = s * fdotex * inv_rho
         u[1, i, j] = s * fdotey * inv_rho
+
+def compute_macro_vars_numpy():
+    cx = np.array([0, 1, 0, 1, 1, -1, 0, -1, -1])
+    cy = np.array([0, 0, 1, 1, -1, 0, -1, -1, 1])
+
+    rho[:] = (nodetype <= 0) * np.tensordot(f, np.ones(9), (0, 0))
+    inv_rho = np.clip(1.0 / rho, 0.0, sys.float_info.max)
+    u[0][:] = (nodetype <= 0) * (np.tensordot(f, cx, (0, 0)) * inv_rho)
+    u[1][:] = (nodetype <= 0) * (np.tensordot(f, cy, (0, 0)) * inv_rho)
 
 def compute_edf_gpu():
     for i, j in np.ndindex(ny, nx):
@@ -144,7 +153,7 @@ def test_lb():
     for i in range(niters):
         collide_gpu()
         stream_and_bounce_gpu()
-        compute_macro_vars_gpu()
+        compute_macro_vars_numpy()
     t1 = time.time()
 
     mlups = (ny * nx * niters * 1e-6) / (t1 - t0)

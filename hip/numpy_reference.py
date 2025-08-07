@@ -83,15 +83,16 @@ def collide_gpu():
             u2 = ux2 + uy2
 
             # Compute equilibrium distribution function explicitly
-            feq0 = 2.00 * rho_ij / 3.0 * (      -u2                       + 2.0/3.0)
-            feq1 = 1.00 * rho_ij / 3.0 * (       u2 - 1.5 * uy2   + u0    + 1.0/3.0)
-            feq5 = 1.00 * rho_ij / 3.0 * (       u2 - 1.5 * uy2   - u0    + 1.0/3.0)
-            feq2 = 1.00 * rho_ij / 3.0 * (       u2 - 1.5 * ux2   + u1    + 1.0/3.0)
-            feq6 = 1.00 * rho_ij / 3.0 * (       u2 - 1.5 * ux2   - u1    + 1.0/3.0)
-            feq3 = 0.25 * rho_ij / 3.0 * (-0.5 * u2 + 1.5 * sum_2 + sum_u + 1.0/3.0)
-            feq7 = 0.25 * rho_ij / 3.0 * (-0.5 * u2 + 1.5 * sum_2 - sum_u + 1.0/3.0)
-            feq4 = 0.25 * rho_ij / 3.0 * (-0.5 * u2 + 1.5 * dif_2 + dif_u + 1.0/3.0)
-            feq8 = 0.25 * rho_ij / 3.0 * (-0.5 * u2 + 1.5 * dif_2 - dif_u + 1.0/3.0)
+            rho_per_three = rho_ij * 0.3333333333
+            feq0 = 2.00 * rho_per_three * (      -u2                       + 2.0/3.0)
+            feq1 = 1.00 * rho_per_three * (       u2 - 1.5 * uy2   + u0    + 1.0/3.0)
+            feq5 = 1.00 * rho_per_three * (       u2 - 1.5 * uy2   - u0    + 1.0/3.0)
+            feq2 = 1.00 * rho_per_three * (       u2 - 1.5 * ux2   + u1    + 1.0/3.0)
+            feq6 = 1.00 * rho_per_three * (       u2 - 1.5 * ux2   - u1    + 1.0/3.0)
+            feq3 = 0.25 * rho_per_three * (-0.5 * u2 + 1.5 * sum_2 + sum_u + 1.0/3.0)
+            feq7 = 0.25 * rho_per_three * (-0.5 * u2 + 1.5 * sum_2 - sum_u + 1.0/3.0)
+            feq4 = 0.25 * rho_per_three * (-0.5 * u2 + 1.5 * dif_2 + dif_u + 1.0/3.0)
+            feq8 = 0.25 * rho_per_three * (-0.5 * u2 + 1.5 * dif_2 - dif_u + 1.0/3.0)
 
             # Collision step
             f[0, i, j] = (1.0 - inv_tau) * f[0, i, j] + inv_tau * feq0

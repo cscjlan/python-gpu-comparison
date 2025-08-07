@@ -96,13 +96,13 @@ def collide_gpu():
                 ])
 
             f_updated = np.array([
-                      -u2                      + 0.33333333,
-                       u2 - 1.5 * uy2   + u0,   
-                       u2 - 1.5 * ux2   + u1,   
+                      -u2 + 0.33333333,
+                       u2 - 1.5 * uy2 + u0,   
+                       u2 - 1.5 * ux2 + u1,   
                 -0.5 * u2 + 1.5 * sum_2 + sum_u,
                 -0.5 * u2 + 1.5 * dif_2 + dif_u,
-                       u2 - 1.5 * uy2   - u0   ,
-                       u2 - 1.5 * ux2   - u1   ,
+                       u2 - 1.5 * uy2 - u0,
+                       u2 - 1.5 * ux2 - u1,
                 -0.5 * u2 + 1.5 * sum_2 - sum_u,
                 -0.5 * u2 + 1.5 * dif_2 - dif_u,
                 ])
@@ -111,12 +111,11 @@ def collide_gpu():
             rho_per_three = rho_ij * 0.3333333333
             for k in range(9):
                 f_updated[k] = multipliers[k] * rho_per_three * (f_updated[k] + 0.3333333)
-                f[k, i, j] = (1.0 - inv_tau) * f[k, i, j] + inv_tau * f_updated[k]
+                f_updated[k] = (1.0 - inv_tau) * f[k, i, j] + inv_tau * f_updated[k]
 
-            for q in range(1,5):
-                fswap = f[q, i,j]
-                f[q, i,j]=f[q+4,i,j]
-                f[q+4,i,j]=fswap
+            for k in range(9):
+                l = ((k + 3 & 7) + 1) * int(k != 0)
+                f[l, i, j] = f_updated[k]
 
 def stream_and_bounce_gpu():
     for i, j in np.ndindex(ny, nx):

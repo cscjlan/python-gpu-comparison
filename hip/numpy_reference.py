@@ -168,13 +168,32 @@ def stream_and_bounce_gpu():
             f[q, nexti, nextj] = (1.0 - s) * f1 + s * f2
             f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
 
+def stream_and_bounce_numpy():
+    i = np.arange(ny)
+    j = np.arange(nx)
+
+    s1 = nodetype <= 0
+    for q in range(1,5):
+        nexti = ((ny + i - ey[q]) % ny).astype(np.int32)
+        nextj = ((nx + j + ex[q]) % nx).astype(np.int32)
+        nexti = np.repeat(nexti, nx)
+        nextj = np.tile(nextj, ny)
+
+        s2 = (nodetype[nexti, nextj] <= 0).reshape(nodetype.shape)
+        s = s1 * s2
+        f1 = f[q][nexti, nextj].reshape(nodetype.shape)
+        f2 = f[q + 4]
+
+        f[q][nexti, nextj] = ((1.0 - s) * f1 + s * f2).reshape(np.prod(nodetype.shape))
+        f[q + 4] = (1.0 - s) * f2 + s * f1
+
 def test_lb():
     compute_edf_numpy()
 
     t0 = time.time()
     for i in range(niters):
         collide_gpu()
-        stream_and_bounce_gpu()
+        stream_and_bounce_numpy()
         compute_macro_vars_numpy()
     t1 = time.time()
 

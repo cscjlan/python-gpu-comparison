@@ -68,54 +68,62 @@ def collide_gpu():
         rho_ij = rho[i, j]
         inv_tau = 1.0 / tau_ij
         tau_per_rho = np.min((tau_ij / rho_ij, sys.float_info.max))
-        if nodetype[i, j] <= 0:
-            u0 = u[0, i, j] + Fg[0, i, j] * tau_per_rho
-            u1 = u[1, i, j] + Fg[1, i, j] * tau_per_rho
+        s = float(nodetype[i, j] <= 0)
+        u0 = u[0, i, j] + s * Fg[0, i, j] * tau_per_rho
+        u1 = u[1, i, j] + s * Fg[1, i, j] * tau_per_rho
 
-            u[0, i, j] = u0
-            u[1, i, j] = u1
+        u[0, i, j] = u0
+        u[1, i, j] = u1
 
-            ux2 = u0 * u0
-            uy2 = u1 * u1
-            sum_u = u0 + u1
-            dif_u = u0 - u1
-            sum_2 = sum_u * sum_u
-            dif_2 = dif_u * dif_u
-            u2 = ux2 + uy2
+        ux2 = u0 * u0
+        uy2 = u1 * u1
+        sum_u = u0 + u1
+        dif_u = u0 - u1
+        sum_2 = sum_u * sum_u
+        dif_2 = dif_u * dif_u
+        u2 = ux2 + uy2
 
-            multipliers = np.array([
-                2.00,
-                1.00,
-                1.00,
-                0.25,
-                0.25,
-                1.00,
-                1.00,
-                0.25,
-                0.25,
-                ])
+        multipliers = np.array([
+            2.00,
+            1.00,
+            1.00,
+            0.25,
+            0.25,
+            1.00,
+            1.00,
+            0.25,
+            0.25,
+            ])
 
-            f_updated = np.array([
-                      -u2 + 0.33333333,
-                       u2 - 1.5 * uy2 + u0,   
-                       u2 - 1.5 * ux2 + u1,   
-                -0.5 * u2 + 1.5 * sum_2 + sum_u,
-                -0.5 * u2 + 1.5 * dif_2 + dif_u,
-                       u2 - 1.5 * uy2 - u0,
-                       u2 - 1.5 * ux2 - u1,
-                -0.5 * u2 + 1.5 * sum_2 - sum_u,
-                -0.5 * u2 + 1.5 * dif_2 - dif_u,
-                ])
+        f_updated = np.array([
+                  -u2 + 0.33333333,
+                   u2 - 1.5 * uy2 + u0,   
+                   u2 - 1.5 * ux2 + u1,   
+            -0.5 * u2 + 1.5 * sum_2 + sum_u,
+            -0.5 * u2 + 1.5 * dif_2 + dif_u,
+                   u2 - 1.5 * uy2 - u0,
+                   u2 - 1.5 * ux2 - u1,
+            -0.5 * u2 + 1.5 * sum_2 - sum_u,
+            -0.5 * u2 + 1.5 * dif_2 - dif_u,
+            ])
 
-            # Compute equilibrium distribution function explicitly
-            rho_per_three = rho_ij * 0.3333333333
-            for k in range(9):
-                f_updated[k] = multipliers[k] * rho_per_three * (f_updated[k] + 0.3333333)
-                f_updated[k] = (1.0 - inv_tau) * f[k, i, j] + inv_tau * f_updated[k]
+        # Compute equilibrium distribution function explicitly
+        rho_per_three = rho_ij * 0.3333333333
+        for k in range(9):
+            f_updated[k] = multipliers[k] * rho_per_three * (f_updated[k] + 0.3333333)
+            f_old = f[k, i, j]
+            f_new = (1.0 - inv_tau) * f_old  + inv_tau * f_updated[k]
+            f_updated[k] = s * f_new + (1.0 - s) * f_old
 
-            for k in range(9):
-                l = ((k + 3 & 7) + 1) * int(k != 0)
-                f[l, i, j] = f_updated[k]
+        for k in range(9):
+            # Mapping of indices:
+            # 0 <--> 0
+            # 1 <--> 5
+            # 2 <--> 6
+            # 3 <--> 7
+            # 4 <--> 8
+            l = ((k + 3 & 7) + 1) * int(k != 0)
+            f[l, i, j] = f_updated[k]
 
 def stream_and_bounce_gpu():
     for i, j in np.ndindex(ny, nx):

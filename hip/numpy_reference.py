@@ -77,23 +77,21 @@ def compute_edf_numpy():
     ux2 = u0 * u0
     uy2 = u1 * u1
     uxy = u0 * u1
+    u2 = ux2 + uy2
+
     s = nodetype <= 0
     inv_es_sq = 3.0
 
-    for q in range(9):
-        exq = ex[q]
-        eyq = ey[q]
-        euxy = exq * eyq * uxy
-        euxx = exq * exq * ux2
-        euyy = eyq * eyq * uy2
-        eu2 = 2.0 * euxy + euxx + euyy
-        u2 = ux2 + uy2
+    euxy = np.outer(ex * ey, uxy).reshape(f.shape)
+    euxx = np.outer(ex * ex, ux2).reshape(f.shape)
+    euyy = np.outer(ey * ey, uy2).reshape(f.shape)
+    eu2 = 2.0 * euxy + euxx + euyy
 
-        term1 = inv_es_sq * (exq * u0 + eyq * u1)
-        term2 = 0.5 * inv_es_sq * (inv_es_sq * eu2 - u2)
-        f_old = f[q]
-        f_new = w[q] * rho * (1.0 + term1 + term2)
-        f[q] = s * f_new + (1.0 - s) * f_old
+    term1 = inv_es_sq * (np.outer(ex, u0) + np.outer(ey, u1)).reshape(f.shape)
+    term2 = 0.5 * inv_es_sq * (inv_es_sq * eu2 - u2)
+    f_old = f
+    f_new = np.outer(w, rho).reshape(f.shape) * (1.0 + term1 + term2)
+    f[:] = s * f_new + (1.0 - s) * f_old
 
 def collide_gpu():
     for i, j in np.ndindex(ny, nx):

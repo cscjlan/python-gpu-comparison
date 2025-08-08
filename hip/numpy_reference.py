@@ -169,23 +169,23 @@ def stream_and_bounce_gpu():
             f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
 
 def stream_and_bounce_numpy():
-    i = np.arange(ny)
-    j = np.arange(nx)
+    q, i, j = np.meshgrid(np.arange(1, 5), np.arange(ny), np.arange(nx), indexing='ij')
 
-    s1 = nodetype <= 0
-    for q in range(1,5):
-        nexti = ((ny + i - ey[q]) % ny).astype(np.int32)
-        nextj = ((nx + j + ex[q]) % nx).astype(np.int32)
-        nexti = np.repeat(nexti, nx)
-        nextj = np.tile(nextj, ny)
+    i = i.flatten()
+    j = j.flatten()
+    q = q.flatten()
 
-        s2 = (nodetype[nexti, nextj] <= 0).reshape(nodetype.shape)
-        s = s1 * s2
-        f1 = f[q][nexti, nextj].reshape(nodetype.shape)
-        f2 = f[q + 4]
+    nexti = ((ny + i - ey[q]) % ny).astype(np.int32)
+    nextj = ((nx + j - ex[q]) % nx).astype(np.int32)
 
-        f[q][nexti, nextj] = ((1.0 - s) * f1 + s * f2).reshape(np.prod(nodetype.shape))
-        f[q + 4] = (1.0 - s) * f2 + s * f1
+    s1 = nodetype[i, j] <= 0
+    s2 = nodetype[nexti, nextj] <= 0
+    s = s1 * s2
+
+    f1 = f[q, nexti, nextj]
+    f2 = f[q + 4, i, j]
+    f[q, nexti, nextj] = (1.0 - s) * f1 + s * f2
+    f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
 
 def test_lb():
     compute_edf_numpy()

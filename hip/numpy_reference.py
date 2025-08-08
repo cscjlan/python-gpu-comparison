@@ -172,7 +172,6 @@ def compute_edf_numpy():
     f[:] = s * f_new + (1.0 - s) * f_old
 
 def collide_numpy():
-    inv_tau = np.clip(1.0 / tau, 0.0, sys.float_info.max)
     tau_per_rho = np.clip(tau / rho, 0.0, sys.float_info.max)
 
     s = nodetype <= 0
@@ -214,19 +213,21 @@ def collide_numpy():
         ])
 
     rho_per_three = rho * 0.3333333333
-    for q in range(9):
-        # Mapping of indices:
-        # 0 <--> 0
-        # 1 <--> 5
-        # 2 <--> 6
-        # 3 <--> 7
-        # 4 <--> 8
-        l = ((q + 3 & 7) + 1) * int(q != 0)
+    inv_tau = np.clip(1.0 / tau, 0.0, sys.float_info.max)
 
-        f_eq = multipliers[l] * rho_per_three * (f_updated[l] + 0.3333333)
-        f_l = f[l]
-        f_new = (1.0 - inv_tau) * f_l + inv_tau * f_eq
-        f[q] = (1.0 - s) * f_l + s * f_new
+    # Mapping of indices:
+    # 0 <--> 0
+    # 1 <--> 5
+    # 2 <--> 6
+    # 3 <--> 7
+    # 4 <--> 8
+    q = np.arange(9)
+    l = ((q + 3 & 7) + 1) * (q != 0)
+    f_eq = np.outer(multipliers[l], rho_per_three).reshape(f.shape) * (f_updated + 0.33333333)
+
+    f_l = f[l]
+    f_new = (1.0 - inv_tau) * f_l + inv_tau * f_eq[l]
+    f[q] = (1.0 - s) * f_l + s * f_new
 
 def stream_and_bounce_numpy():
     q, i, j = np.meshgrid(np.arange(1, 5), np.arange(ny), np.arange(nx), indexing='ij')

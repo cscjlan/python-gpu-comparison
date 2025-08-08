@@ -25,7 +25,7 @@ nodetype[-1, :] = 1
 f = np.zeros((9, ny, nx), dtype=dtype)
 
 # GPU friendly versions, but running on CPU
-def compute_macro_vars_gpu(i: int, j: int):
+def compute_macro_vars(i: int, j: int):
     f_ij = np.array([f[0, i, j], f[1, i, j], f[2, i, j], f[3, i, j], f[4, i, j], f[5, i, j], f[6, i, j], f[7, i, j], f[8, i, j]])
     s = float(nodetype[i, j] <= 0)
     rho_ij = f_ij[0] + f_ij[1] + f_ij[2] + f_ij[3] + f_ij[4] + f_ij[5] + f_ij[6] + f_ij[7] + f_ij[8]
@@ -38,7 +38,7 @@ def compute_macro_vars_gpu(i: int, j: int):
     u[0, i, j] = s * fdotex * inv_rho
     u[1, i, j] = s * fdotey * inv_rho
 
-def compute_edf_gpu(i: int, j: int):
+def compute_edf(i: int, j: int):
     s = float(nodetype[i, j] <= 0)
     u0 = u[0, i, j]
     u1 = u[1, i, j]
@@ -61,7 +61,7 @@ def compute_edf_gpu(i: int, j: int):
         f_new = w[q] * rho[i, j] * (1.0 + term1 + term2)
         f[q, i, j] = s * f_new + (1.0 - s) * f_old
 
-def stream_and_bounce_gpu(i: int, j: int):
+def stream_and_bounce(i: int, j: int):
     s1 = float(nodetype[i, j] <= 0)
     for q in range(1,5):
         nexti = (ny + int(i - ey[q])) % ny
@@ -75,7 +75,7 @@ def stream_and_bounce_gpu(i: int, j: int):
         f[q, nexti, nextj] = (1.0 - s) * f1 + s * f2
         f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
 
-def collide_gpu(i: int, j: int):
+def collide(i: int, j: int):
     tau_ij = tau[i, j]
     rho_ij = rho[i, j]
     inv_tau = 1.0 / tau_ij
@@ -172,64 +172,61 @@ def compute_edf_numpy():
     f[:] = s * f_new + (1.0 - s) * f_old
 
 def collide_numpy():
-    for i, j in np.ndindex(ny, nx):
-        tau_ij = tau[i, j]
-        rho_ij = rho[i, j]
-        inv_tau = 1.0 / tau_ij
-        tau_per_rho = np.min((tau_ij / rho_ij, sys.float_info.max))
-        s = float(nodetype[i, j] <= 0)
-        u0 = u[0, i, j] + s * Fg[0, i, j] * tau_per_rho
-        u1 = u[1, i, j] + s * Fg[1, i, j] * tau_per_rho
+    inv_tau = np.clip(1.0 / tau, 0.0, sys.float_info.max)
+    tau_per_rho = np.clip(tau / rho, 0.0, sys.float_info.max)
 
-        u[0, i, j] = u0
-        u[1, i, j] = u1
+    s = nodetype <= 0
+    u[:] += s * Fg * tau_per_rho
 
-        ux2 = u0 * u0
-        uy2 = u1 * u1
-        sum_u = u0 + u1
-        dif_u = u0 - u1
-        sum_2 = sum_u * sum_u
-        dif_2 = dif_u * dif_u
-        u2 = ux2 + uy2
+    sum_u = np.sum(u, axis=0)
+    dif_u = -np.diff(u, axis=0).reshape(ny, nx)
+    sum_2 = 1.5 * sum_u * sum_u
+    dif_2 = 1.5 * dif_u * dif_u
+    u2 = u * u
+    u2_sum = np.sum(u2, axis=0)
+    u2_sum_m_u2 = u2_sum - 1.5 * u2
+    neg_half_u2_sum = -0.5 * u2_sum
+    neg_half_u2_sum_p_sum_2 = neg_half_u2_sum + sum_2
+    neg_half_u2_sum_p_dif_2 = neg_half_u2_sum + dif_2
 
-        multipliers = np.array([
-            2.00,
-            1.00,
-            1.00,
-            0.25,
-            0.25,
-            1.00,
-            1.00,
-            0.25,
-            0.25,
-            ])
+    multipliers = np.array([
+        2.00,
+        1.00,
+        1.00,
+        0.25,
+        0.25,
+        1.00,
+        1.00,
+        0.25,
+        0.25,
+        ])
 
-        f_updated = np.array([
-                  -u2 + 0.33333333,
-                   u2 - 1.5 * uy2 + u0,   
-                   u2 - 1.5 * ux2 + u1,   
-            -0.5 * u2 + 1.5 * sum_2 + sum_u,
-            -0.5 * u2 + 1.5 * dif_2 + dif_u,
-                   u2 - 1.5 * uy2 - u0,
-                   u2 - 1.5 * ux2 - u1,
-            -0.5 * u2 + 1.5 * sum_2 - sum_u,
-            -0.5 * u2 + 1.5 * dif_2 - dif_u,
-            ])
+    f_updated = np.array([
+        -u2_sum + 0.33333333,
+        u2_sum_m_u2[1] + u[0],   
+        u2_sum_m_u2[0] + u[1],   
+        neg_half_u2_sum_p_sum_2 + sum_u,
+        neg_half_u2_sum_p_dif_2 + dif_u,
+        u2_sum_m_u2[1] - u[0],
+        u2_sum_m_u2[0] - u[1],
+        neg_half_u2_sum_p_sum_2 - sum_u,
+        neg_half_u2_sum_p_dif_2 - dif_u,
+        ])
 
-        rho_per_three = rho_ij * 0.3333333333
-        for q in range(9):
-            # Mapping of indices:
-            # 0 <--> 0
-            # 1 <--> 5
-            # 2 <--> 6
-            # 3 <--> 7
-            # 4 <--> 8
-            l = ((q + 3 & 7) + 1) * int(q != 0)
+    rho_per_three = rho * 0.3333333333
+    for q in range(9):
+        # Mapping of indices:
+        # 0 <--> 0
+        # 1 <--> 5
+        # 2 <--> 6
+        # 3 <--> 7
+        # 4 <--> 8
+        l = ((q + 3 & 7) + 1) * int(q != 0)
 
-            f_eq = multipliers[l] * rho_per_three * (f_updated[l] + 0.3333333)
-            f_lij = f[l, i, j]
-            f_new = (1.0 - inv_tau) * f_lij + inv_tau * f_eq
-            f[q, i, j] = (1.0 - s) * f_lij + s * f_new
+        f_eq = multipliers[l] * rho_per_three * (f_updated[l] + 0.3333333)
+        f_l = f[l]
+        f_new = (1.0 - inv_tau) * f_l + inv_tau * f_eq
+        f[q] = (1.0 - s) * f_l + s * f_new
 
 def stream_and_bounce_numpy():
     q, i, j = np.meshgrid(np.arange(1, 5), np.arange(ny), np.arange(nx), indexing='ij')
@@ -258,6 +255,18 @@ def test_lb_numpy():
         collide_numpy()
         stream_and_bounce_numpy()
         compute_macro_vars_numpy()
+    t1 = time.time()
+
+    return t1 - t0
+
+def test_lb_loop():
+    loop(compute_edf)
+
+    t0 = time.time()
+    for _ in range(niters):
+        loop(collide)
+        loop(stream_and_bounce)
+        loop(compute_macro_vars)
     t1 = time.time()
 
     return t1 - t0

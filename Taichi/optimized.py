@@ -293,14 +293,16 @@ def collide():
 @ti.kernel
 def collide_updated():
     for i, j in ti.ndrange(ny, nx):
-        s = float(nodetype[i, j] <= 0)
+        s1 = float(nodetype[i, j] <= 0)
+        s2 = 1.0 - s1
         tau_ij = tau[i, j]
         rho_ij = rho[i, j]
         inv_tau = ti.min(1.0 / tau_ij, max_f32)
+        rho_per_tau = ti.min(inv_tau * rho_ij, max_f32)
         tau_per_rho = ti.min(tau_ij / rho_ij, max_f32)
 
-        ux = u[0, i, j] + s * Fg[0, i, j] * tau_per_rho
-        uy = u[1, i, j] + s * Fg[1, i, j] * tau_per_rho
+        ux = u[0, i, j] + s1 * Fg[0, i, j] * tau_per_rho
+        uy = u[1, i, j] + s1 * Fg[1, i, j] * tau_per_rho
 
         ux2 = ux * ux
         uy2 = uy * uy
@@ -327,14 +329,14 @@ def collide_updated():
         # Collision step
         for q in ti.static(range(9)):
             f_old = f[q, i, j]
-            f_new = (1.0 - inv_tau) * f_old + inv_tau * rho_ij * feq[q]
-            f[q, i, j] = (1.0 - s) * f_old + s * f_new
+            f_new = (1.0 - inv_tau) * f_old + rho_per_tau * feq[q]
+            f[q, i, j] = s2 * f_old + s1 * f_new
 
         for q in ti.static(range(1, 5)):
             f1 = f[q, i, j]
             f2 = f[q + 4, i, j]
-            f[q, i, j] = (1.0 - s) * f1 + s * f2
-            f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
+            f[q, i, j] = s2 * f1 + s1 * f2
+            f[q + 4, i, j] = s2 * f2 + s1 * f1
 
         u[0, i, j] = ux
         u[1, i, j] = uy

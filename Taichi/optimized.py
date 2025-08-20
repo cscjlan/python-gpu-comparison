@@ -324,15 +324,8 @@ def collide_updated():
         ])
 
         # Collision step
-        f[0, i, j] = (1.0 - s) * f[0, i, j] + s * ((1.0 - inv_tau) * f[0, i, j] + inv_tau * feq[0])
-        f[1, i, j] = (1.0 - s) * f[1, i, j] + s * ((1.0 - inv_tau) * f[1, i, j] + inv_tau * feq[1])
-        f[2, i, j] = (1.0 - s) * f[2, i, j] + s * ((1.0 - inv_tau) * f[2, i, j] + inv_tau * feq[2])
-        f[3, i, j] = (1.0 - s) * f[3, i, j] + s * ((1.0 - inv_tau) * f[3, i, j] + inv_tau * feq[3])
-        f[4, i, j] = (1.0 - s) * f[4, i, j] + s * ((1.0 - inv_tau) * f[4, i, j] + inv_tau * feq[4])
-        f[5, i, j] = (1.0 - s) * f[5, i, j] + s * ((1.0 - inv_tau) * f[5, i, j] + inv_tau * feq[5])
-        f[6, i, j] = (1.0 - s) * f[6, i, j] + s * ((1.0 - inv_tau) * f[6, i, j] + inv_tau * feq[6])
-        f[7, i, j] = (1.0 - s) * f[7, i, j] + s * ((1.0 - inv_tau) * f[7, i, j] + inv_tau * feq[7])
-        f[8, i, j] = (1.0 - s) * f[8, i, j] + s * ((1.0 - inv_tau) * f[8, i, j] + inv_tau * feq[8])
+        for q in ti.static(range(9)):
+            f[q, i, j] = (1.0 - s) * f[q, i, j] + s * ((1.0 - inv_tau) * f[q, i, j] + inv_tau * feq[q])
         # fmt: on
 
         for q in ti.static(range(1, 5)):

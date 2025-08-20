@@ -7,30 +7,31 @@ import matplotlib.pyplot as plt
 ti.init(arch=ti.gpu)
 
 # Constants
-dtype = np.float32
+npdtype = np.float32
+tidtype = ti.f32
 nx, ny = 500, 500
 niters = 400
-max_float = np.finfo(dtype).max
+max_float = np.finfo(npdtype).max
 
 # Lattice velocity directions
-ex_host = np.array([0, 1, 0, 1, 1, -1, 0, -1, -1], dtype=dtype)
-ey_host = np.array([0, 0, 1, 1, -1, 0, -1, -1, 1], dtype=dtype)
+ex_host = np.array([0, 1, 0, 1, 1, -1, 0, -1, -1], dtype=npdtype)
+ey_host = np.array([0, 0, 1, 1, -1, 0, -1, -1, 1], dtype=npdtype)
 es_host = (1 / 3) ** 0.5
 w_host = np.array(
-    [4 / 9, 1 / 9, 1 / 9, 1 / 36, 1 / 36, 1 / 9, 1 / 9, 1 / 36, 1 / 36], dtype=dtype
+    [4 / 9, 1 / 9, 1 / 9, 1 / 36, 1 / 36, 1 / 9, 1 / 9, 1 / 36, 1 / 36], dtype=npdtype
 )
 
 # Taichi fields (GPU Memory)
-ex = ti.field(dtype=ti.f32, shape=9)
-ey = ti.field(dtype=ti.f32, shape=9)
-w = ti.field(dtype=ti.f32, shape=9)
+ex = ti.field(dtype=tidtype, shape=9)
+ey = ti.field(dtype=tidtype, shape=9)
+w = ti.field(dtype=tidtype, shape=9)
 
-rho = ti.field(dtype=ti.f32, shape=(ny, nx))
-tau = ti.field(dtype=ti.f32, shape=(ny, nx))
-u = ti.field(dtype=ti.f32, shape=(2, ny, nx))
-Fg = ti.field(dtype=ti.f32, shape=(2, ny, nx))
+rho = ti.field(dtype=tidtype, shape=(ny, nx))
+tau = ti.field(dtype=tidtype, shape=(ny, nx))
+u = ti.field(dtype=tidtype, shape=(2, ny, nx))
+Fg = ti.field(dtype=tidtype, shape=(2, ny, nx))
 nodetype = ti.field(dtype=ti.i32, shape=(ny, nx))
-f = ti.field(dtype=ti.f32, shape=(9, ny, nx))
+f = ti.field(dtype=tidtype, shape=(9, ny, nx))
 
 # Copy constant data to GPU fields
 ex.from_numpy(ex_host)
@@ -186,22 +187,22 @@ def compute_macro_vars():
 def compute_edf():
     for i, j in ti.ndrange(ny, nx):
         s = float(nodetype[i, j] <= 0)
-        u0 = u[0, i, j]
-        u1 = u[1, i, j]
+        ux = u[0, i, j]
+        uy = u[1, i, j]
         for q in ti.static(range(9)):
             exq = ex[q]
             eyq = ey[q]
-            inv_es_sq = 3.0
+            inv_es_sq = ti.static(3.0)
 
-            ux2 = u0 * u0
-            uy2 = u1 * u1
-            euxy = exq * eyq * u0 * u1
+            ux2 = ux * ux
+            uy2 = uy * uy
+            euxy = exq * eyq * ux * uy
             euxx = exq * exq * ux2
             euyy = eyq * eyq * uy2
             eu2 = 2.0 * euxy + euxx + euyy
             u2 = ux2 + uy2
 
-            term1 = inv_es_sq * (exq * u0 + eyq * u1)
+            term1 = inv_es_sq * (exq * ux + eyq * uy)
             term2 = 0.5 * inv_es_sq * (inv_es_sq * eu2 - u2)
             f_old = f[q, i, j]
             f_new = w[q] * rho[i, j] * (1.0 + term1 + term2)
@@ -228,27 +229,28 @@ def stream_and_bounce():
 @ti.kernel
 def collide():
     for i, j in ti.ndrange(ny, nx):
+        s1 = float(nodetype[i, j] <= 0)
+        s2 = 1.0 - s1
         tau_ij = tau[i, j]
         rho_ij = rho[i, j]
-        inv_tau = 1.0 / tau_ij
-
+        inv_tau = ti.min(1.0 / tau_ij, max_float)
+        third_rho_per_tau = 0.333333 * ti.min(inv_tau * rho_ij, max_float)
         tau_per_rho = ti.min(tau_ij / rho_ij, max_float)
-        s = float(nodetype[i, j] <= 0)
-        u0 = u[0, i, j] + s * Fg[0, i, j] * tau_per_rho
-        u1 = u[1, i, j] + s * Fg[1, i, j] * tau_per_rho
 
-        u[0, i, j] = u0
-        u[1, i, j] = u1
+        ux = u[0, i, j] + s1 * Fg[0, i, j] * tau_per_rho
+        uy = u[1, i, j] + s1 * Fg[1, i, j] * tau_per_rho
 
-        ux2 = u0 * u0
-        uy2 = u1 * u1
-        sum_u = u0 + u1
-        dif_u = u0 - u1
-        sum_2 = sum_u * sum_u
-        dif_2 = dif_u * dif_u
-        u2 = ux2 + uy2
+        ux2 = ux * ux
+        uy2 = uy * uy
+        uxy3 = 3.0 * ux * uy
+        ux2_p_ux = ux2 + ux
+        ux2_m_ux = ux2 - ux
+        uy2_p_uy = uy2 + uy
+        uy2_m_uy = uy2 - uy
+        half_ux2 = 0.5 * ux2
+        half_uy2 = 0.5 * uy2
 
-        multipliers = ti.static(
+        multiplier = ti.static(
             [
                 2.00,
                 1.00,
@@ -262,73 +264,27 @@ def collide():
             ]
         )
 
-        f_updated = ti.static(
+        # Compute equilibrium distribution function explicitly
+        feq = ti.static(
             [
-                -u2 + 0.33333333,
-                u2 - 1.5 * uy2 + u0,
-                u2 - 1.5 * ux2 + u1,
-                -0.5 * u2 + 1.5 * sum_2 + sum_u,
-                -0.5 * u2 + 1.5 * dif_2 + dif_u,
-                u2 - 1.5 * uy2 - u0,
-                u2 - 1.5 * ux2 - u1,
-                -0.5 * u2 + 1.5 * sum_2 - sum_u,
-                -0.5 * u2 + 1.5 * dif_2 - dif_u,
+                -ux2 - uy2 + 0.333333,
+                ux2_p_ux - half_uy2,
+                uy2_p_uy - half_ux2,
+                ux2_p_ux + uy2_p_uy + uxy3,
+                ux2_p_ux + uy2_m_uy - uxy3,
+                ux2_m_ux - half_uy2,
+                uy2_m_uy - half_ux2,
+                ux2_m_ux + uy2_m_uy + uxy3,
+                ux2_m_ux + uy2_p_uy - uxy3,
             ]
         )
-
-        rho_per_three = rho_ij * 0.3333333333
-        for q in ti.static(range(9)):
-            f_eq = multipliers[q] * rho_per_three * (f_updated[q] + 0.3333333)
-            f_qij = f[q, i, j]
-            f_new = (1.0 - inv_tau) * f_qij + inv_tau * f_eq
-            f[q, i, j] = (1.0 - s) * f_qij + s * f_new
-
-        for q in ti.static(range(1, 5)):
-            fswap = f[q, i, j]
-            f[q, i, j] = f[q + 4, i, j]
-            f[q + 4, i, j] = fswap
-
-
-@ti.kernel
-def collide_updated():
-    for i, j in ti.ndrange(ny, nx):
-        s1 = float(nodetype[i, j] <= 0)
-        s2 = 1.0 - s1
-        tau_ij = tau[i, j]
-        rho_ij = rho[i, j]
-        inv_tau = ti.min(1.0 / tau_ij, max_float)
-        rho_per_tau = ti.min(inv_tau * rho_ij, max_float)
-        tau_per_rho = ti.min(tau_ij / rho_ij, max_float)
-
-        ux = u[0, i, j] + s1 * Fg[0, i, j] * tau_per_rho
-        uy = u[1, i, j] + s1 * Fg[1, i, j] * tau_per_rho
-
-        ux2 = ux * ux
-        uy2 = uy * uy
-        sum_u = ux + uy
-        dif_u = ux - uy
-        sum_sq = sum_u * sum_u
-        dif_sq = dif_u * dif_u
-
-        # fmt: off
-        # Compute equilibrium distribution function explicitly
-        feq = ti.static([
-            1.00 * (-2.0/3.00 * ux2 - 2.0/3.0 * uy2                                                   + 4.0/9.0),
-            1.00 * ( 1.0/3.00 * ux2 + 1.0/3.0 * ux  - 1.0/6.0 * uy2                                   + 1.0/9.0),
-            1.00 * ( 1.0/3.00 * uy2 - 1.0/6.0 * ux2 + 1.0/3.0 * uy                                    + 1.0/9.0),
-            1.00 * (-1.0/24.00 * ux2 + 1.0/12.0 * ux  - 1.0/24.0 * uy2 + 1.0/12.0 * uy + 1.0/8.0 * sum_sq + 1.0/36.0),
-            1.00 * (-1.0/24.00 * ux2 + 1.0/12.0 * ux  - 1.0/24.0 * uy2 - 1.0/12.0 * uy + 1.0/8.0 * dif_sq + 1.0/36.0),
-            1.00 * ( 1.0/3.00 * ux2 - 1.0/3.0 * ux  - 1.0/6.0 * uy2                                   + 1.0/9.0),
-            1.00 * ( 1.0/3.00 * uy2 - 1.0/6.0 * ux2 - 1.0/3.0 * uy                                    + 1.0/9.0),
-            1.00 * (-1.0/24.00 * ux2 - 1.0/12.0 * ux  - 1.0/24.0 * uy2 - 1.0/12.0 * uy + 1.0/8.0 * sum_sq + 1.0/36.0),
-            1.00 * (-1.0/24.00 * ux2 - 1.0/12.0 * ux  - 1.0/24.0 * uy2 + 1.0/12.0 * uy + 1.0/8.0 * dif_sq + 1.0/36.0),
-        ])
-        # fmt: on
 
         # Collision step
         for q in ti.static(range(9)):
             f_old = f[q, i, j]
-            f_new = (1.0 - inv_tau) * f_old + rho_per_tau * feq[q]
+            f_new = (1.0 - inv_tau) * f_old + third_rho_per_tau * multiplier[q] * (
+                feq[q] + 0.3333333
+            )
             f[q, i, j] = s2 * f_old + s1 * f_new
 
         for q in ti.static(range(1, 5)):
@@ -344,13 +300,13 @@ def collide_updated():
 @ti.kernel
 def init():
     for i, j in ti.ndrange(ny, nx):
-        rho[i, j] = 1.0
-        tau[i, j] = 0.5
+        rho[i, j] = 0.987621
+        tau[i, j] = 0.6986542
 
         u[0, i, j] = 0.0
         u[1, i, j] = 0.0
 
-        Fg[0, i, j] = 1.0
+        Fg[0, i, j] = 0.7
         Fg[1, i, j] = 0.0
 
         nodetype[i, j] = int(i == 0) or (i == (ny - 1))
@@ -378,7 +334,7 @@ def optimized():
     compute_edf()
     t0 = time.time()
     for _ in range(niters):
-        collide_updated()
+        collide()
         stream_and_bounce()
         compute_macro_vars()
     ti.sync()

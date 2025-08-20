@@ -7,10 +7,10 @@ import matplotlib.pyplot as plt
 ti.init(arch=ti.gpu)
 
 # Constants
-npdtype = np.float32
-tidtype = ti.f32
+npdtype = np.float64
+tidtype = ti.f64
 nx, ny = 500, 500
-niters = 400
+niters = 600
 max_float = np.finfo(npdtype).max
 
 # Lattice velocity directions
@@ -165,16 +165,16 @@ def stream_and_bounce_old():
 @ti.kernel
 def compute_macro_vars():
     for i, j in ti.ndrange(ny, nx):
-        s = float(nodetype[i, j] <= 0)
-        rho_ij = 0.0
-        fdotex = 0.0
-        fdotey = 0.0
+        s = tidtype(nodetype[i, j] <= 0)
+        rho_ij = tidtype(0.0)
+        fdotex = tidtype(0.0)
+        fdotey = tidtype(0.0)
 
         for q in ti.static(range(9)):
             f_qij = f[q, i, j]
-            rho_ij += f_qij
-            fdotex += f_qij * ex[q]
-            fdotey += f_qij * ey[q]
+            rho_ij = rho_ij + f_qij
+            fdotex = fdotex + f_qij * ex[q]
+            fdotey = fdotey + f_qij * ey[q]
 
         inv_rho = ti.min(1.0 / rho_ij, max_float)
 
@@ -186,7 +186,7 @@ def compute_macro_vars():
 @ti.kernel
 def compute_edf():
     for i, j in ti.ndrange(ny, nx):
-        s = float(nodetype[i, j] <= 0)
+        s = tidtype(nodetype[i, j] <= 0)
         ux = u[0, i, j]
         uy = u[1, i, j]
         for q in ti.static(range(9)):
@@ -212,12 +212,12 @@ def compute_edf():
 @ti.kernel
 def stream_and_bounce():
     for i, j in ti.ndrange(ny, nx):
-        s1 = float(nodetype[i, j] <= 0)
+        s1 = tidtype(nodetype[i, j] <= 0)
         for q in ti.static(range(1, 5)):
             nexti = (ny + int(i - ey[q])) % ny
             nextj = (nx + int(j + ex[q])) % nx
 
-            s2 = float(nodetype[nexti, nextj] <= 0)
+            s2 = tidtype(nodetype[nexti, nextj] <= 0)
             s = s1 * s2
             f1 = f[q, nexti, nextj]
             f2 = f[q + 4, i, j]
@@ -229,7 +229,7 @@ def stream_and_bounce():
 @ti.kernel
 def collide():
     for i, j in ti.ndrange(ny, nx):
-        s1 = float(nodetype[i, j] <= 0)
+        s1 = tidtype(nodetype[i, j] <= 0)
         s2 = 1.0 - s1
         tau_ij = tau[i, j]
         rho_ij = rho[i, j]
@@ -300,13 +300,13 @@ def collide():
 @ti.kernel
 def init():
     for i, j in ti.ndrange(ny, nx):
-        rho[i, j] = 0.987621
-        tau[i, j] = 0.6986542
+        rho[i, j] = 1.1
+        tau[i, j] = 1.15
 
         u[0, i, j] = 0.0
         u[1, i, j] = 0.0
 
-        Fg[0, i, j] = 0.7
+        Fg[0, i, j] = 1
         Fg[1, i, j] = 0.0
 
         nodetype[i, j] = int(i == 0) or (i == (ny - 1))

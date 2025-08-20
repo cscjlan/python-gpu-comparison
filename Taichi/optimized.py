@@ -296,6 +296,7 @@ def collide_updated():
         s = float(nodetype[i, j] <= 0)
         tau_ij = tau[i, j]
         rho_ij = rho[i, j]
+        inv_tau = ti.min(1.0 / tau_ij, max_f32)
 
         u[0, i, j] += s * Fg[0, i, j] * tau_ij / rho_ij
         u[1, i, j] += s * Fg[1, i, j] * tau_ij / rho_ij
@@ -317,15 +318,15 @@ def collide_updated():
                             (1.0/12.0) * u[1, i, j] + (1.0/8.0) * (-u[0, i, j] + u[1, i, j])**2 + 1.0/36.0)
 
         # Collision step
-        f[0, i, j] = (1.0 - s) * f[0, i, j] + s * ((1.0 - (1.0 / tau_ij)) * f[0, i, j] + (1.0 / tau_ij) * feq0)
-        f[1, i, j] = (1.0 - s) * f[1, i, j] + s * ((1.0 - (1.0 / tau_ij)) * f[1, i, j] + (1.0 / tau_ij) * feq1)
-        f[2, i, j] = (1.0 - s) * f[2, i, j] + s * ((1.0 - (1.0 / tau_ij)) * f[2, i, j] + (1.0 / tau_ij) * feq2)
-        f[3, i, j] = (1.0 - s) * f[3, i, j] + s * ((1.0 - (1.0 / tau_ij)) * f[3, i, j] + (1.0 / tau_ij) * feq3)
-        f[4, i, j] = (1.0 - s) * f[4, i, j] + s * ((1.0 - (1.0 / tau_ij)) * f[4, i, j] + (1.0 / tau_ij) * feq4)
-        f[5, i, j] = (1.0 - s) * f[5, i, j] + s * ((1.0 - (1.0 / tau_ij)) * f[5, i, j] + (1.0 / tau_ij) * feq5)
-        f[6, i, j] = (1.0 - s) * f[6, i, j] + s * ((1.0 - (1.0 / tau_ij)) * f[6, i, j] + (1.0 / tau_ij) * feq6)
-        f[7, i, j] = (1.0 - s) * f[7, i, j] + s * ((1.0 - (1.0 / tau_ij)) * f[7, i, j] + (1.0 / tau_ij) * feq7)
-        f[8, i, j] = (1.0 - s) * f[8, i, j] + s * ((1.0 - (1.0 / tau_ij)) * f[8, i, j] + (1.0 / tau_ij) * feq8)
+        f[0, i, j] = (1.0 - s) * f[0, i, j] + s * ((1.0 - inv_tau) * f[0, i, j] + inv_tau * feq0)
+        f[1, i, j] = (1.0 - s) * f[1, i, j] + s * ((1.0 - inv_tau) * f[1, i, j] + inv_tau * feq1)
+        f[2, i, j] = (1.0 - s) * f[2, i, j] + s * ((1.0 - inv_tau) * f[2, i, j] + inv_tau * feq2)
+        f[3, i, j] = (1.0 - s) * f[3, i, j] + s * ((1.0 - inv_tau) * f[3, i, j] + inv_tau * feq3)
+        f[4, i, j] = (1.0 - s) * f[4, i, j] + s * ((1.0 - inv_tau) * f[4, i, j] + inv_tau * feq4)
+        f[5, i, j] = (1.0 - s) * f[5, i, j] + s * ((1.0 - inv_tau) * f[5, i, j] + inv_tau * feq5)
+        f[6, i, j] = (1.0 - s) * f[6, i, j] + s * ((1.0 - inv_tau) * f[6, i, j] + inv_tau * feq6)
+        f[7, i, j] = (1.0 - s) * f[7, i, j] + s * ((1.0 - inv_tau) * f[7, i, j] + inv_tau * feq7)
+        f[8, i, j] = (1.0 - s) * f[8, i, j] + s * ((1.0 - inv_tau) * f[8, i, j] + inv_tau * feq8)
         # fmt: on
 
         for q in ti.static(range(1, 5)):

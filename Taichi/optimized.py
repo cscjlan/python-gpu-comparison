@@ -299,26 +299,28 @@ def collide_updated():
         inv_tau = ti.min(1.0 / tau_ij, max_f32)
         tau_per_rho = ti.min(tau_ij / rho_ij, max_f32)
 
-        u0 = u[0, i, j] + s * Fg[0, i, j] * tau_per_rho
-        u1 = u[1, i, j] + s * Fg[1, i, j] * tau_per_rho
+        ux = u[0, i, j] + s * Fg[0, i, j] * tau_per_rho
+        uy = u[1, i, j] + s * Fg[1, i, j] * tau_per_rho
 
-        sum_u = u0 + u1
-        dif_u = u0 - u1
+        ux2 = ux * ux
+        uy2 = uy * uy
+        sum_u = ux + uy
+        dif_u = ux - uy
         sum_sq = sum_u * sum_u
         dif_sq = dif_u * dif_u
 
         # fmt: off
         # Compute equilibrium distribution function explicitly
         feq = ti.static([
-            rho_ij * (-2.0/3.0 * u0**2 - 2.0/3.0 * u1**2 + 4.0/9.0),
-            rho_ij * (1.0/3.0 * u0**2 + 1.0/3.0 * u0 - 1.0/6.0 * u1**2 + 1.0/9.0),
-            rho_ij * (-1.0/6.0 * u0**2 + 1.0/3.0 * u1**2 + 1.0/3.0 * u1 + 1.0/9.0),
-            rho_ij * (-1.0/24.0 * u0**2 + 1.0/12.0 * u0 - 1.0/24.0 * u1**2 + 1.0/12.0 * u1 + 1.0/8.0 * sum_sq + 1.0/36.0),
-            rho_ij * (-1.0/24.0 * u0**2 + 1.0/12.0 * u0 - 1.0/24.0 * u1**2 - 1.0/12.0 * u1 + 1.0/8.0 * dif_sq + 1.0/36.0),
-            rho_ij * (1.0/3.0 * u0**2 - 1.0/3.0 * u0 - 1.0/6.0 * u1**2 + 1.0/9.0),
-            rho_ij * (-1.0/6.0 * u0**2 + 1.0/3.0 * u1**2 - 1.0/3.0 * u1 + 1.0/9.0),
-            rho_ij * (-1.0/24.0 * u0**2 - 1.0/12.0 * u0 - 1.0/24.0 * u1**2 - 1.0/12.0 * u1 + 1.0/8.0 * sum_sq + 1.0/36.0),
-            rho_ij * (-1.0/24.0 * u0**2 - 1.0/12.0 * u0 - 1.0/24.0 * u1**2 + 1.0/12.0 * u1 + 1.0/8.0 * dif_sq + 1.0/36.0),
+            rho_ij * (-2.0/3.0 * ux2 - 2.0/3.0 * uy2 + 4.0/9.0),
+            rho_ij * (1.0/3.0 * ux2 + 1.0/3.0 * ux - 1.0/6.0 * uy2 + 1.0/9.0),
+            rho_ij * (-1.0/6.0 * ux2 + 1.0/3.0 * uy2 + 1.0/3.0 * uy + 1.0/9.0),
+            rho_ij * (-1.0/24.0 * ux2 + 1.0/12.0 * ux - 1.0/24.0 * uy2 + 1.0/12.0 * uy + 1.0/8.0 * sum_sq + 1.0/36.0),
+            rho_ij * (-1.0/24.0 * ux2 + 1.0/12.0 * ux - 1.0/24.0 * uy2 - 1.0/12.0 * uy + 1.0/8.0 * dif_sq + 1.0/36.0),
+            rho_ij * (1.0/3.0 * ux2 - 1.0/3.0 * ux - 1.0/6.0 * uy2 + 1.0/9.0),
+            rho_ij * (-1.0/6.0 * ux2 + 1.0/3.0 * uy2 - 1.0/3.0 * uy + 1.0/9.0),
+            rho_ij * (-1.0/24.0 * ux2 - 1.0/12.0 * ux - 1.0/24.0 * uy2 - 1.0/12.0 * uy + 1.0/8.0 * sum_sq + 1.0/36.0),
+            rho_ij * (-1.0/24.0 * ux2 - 1.0/12.0 * ux - 1.0/24.0 * uy2 + 1.0/12.0 * uy + 1.0/8.0 * dif_sq + 1.0/36.0),
         ])
         # fmt: on
 
@@ -334,8 +336,8 @@ def collide_updated():
             f[q, i, j] = (1.0 - s) * f1 + s * f2
             f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
 
-        u[0, i, j] = u0
-        u[1, i, j] = u1
+        u[0, i, j] = ux
+        u[1, i, j] = uy
 
 
 @ti.kernel

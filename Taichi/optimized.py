@@ -322,11 +322,13 @@ def collide_updated():
             rho_ij * (-1.0/24.0 * u0**2 - 1.0/12.0 * u0 - 1.0/24.0 * u1**2 + 
                                 (1.0/12.0) * u1 + (1.0/8.0) * (-u0 + u1)**2 + 1.0/36.0),
         ])
+        # fmt: on
 
         # Collision step
         for q in ti.static(range(9)):
-            f[q, i, j] = (1.0 - s) * f[q, i, j] + s * ((1.0 - inv_tau) * f[q, i, j] + inv_tau * feq[q])
-        # fmt: on
+            f_old = f[q, i, j]
+            f_new = (1.0 - inv_tau) * f_old + inv_tau * feq[q]
+            f[q, i, j] = (1.0 - s) * f_old + s * f_new
 
         for q in ti.static(range(1, 5)):
             f1 = f[q, i, j]

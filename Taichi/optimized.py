@@ -10,7 +10,7 @@ ti.init(arch=ti.gpu)
 dtype = np.float32
 nx, ny = 500, 500
 niters = 400
-max_f32 = np.finfo(np.float32).max
+max_float = np.finfo(dtype).max
 
 # Lattice velocity directions
 ex_host = np.array([0, 1, 0, 1, 1, -1, 0, -1, -1], dtype=dtype)
@@ -31,7 +31,6 @@ u = ti.field(dtype=ti.f32, shape=(2, ny, nx))
 Fg = ti.field(dtype=ti.f32, shape=(2, ny, nx))
 nodetype = ti.field(dtype=ti.i32, shape=(ny, nx))
 f = ti.field(dtype=ti.f32, shape=(9, ny, nx))
-# f_old = ti.field(dtype=ti.f32, shape=(ny, nx, 9))
 
 # Copy constant data to GPU fields
 ex.from_numpy(ex_host)
@@ -176,7 +175,7 @@ def compute_macro_vars():
             fdotex += f_qij * ex[q]
             fdotey += f_qij * ey[q]
 
-        inv_rho = ti.min(1.0 / rho_ij, max_f32)
+        inv_rho = ti.min(1.0 / rho_ij, max_float)
 
         rho[i, j] = s * rho_ij
         u[0, i, j] = s * fdotex * inv_rho
@@ -233,7 +232,7 @@ def collide():
         rho_ij = rho[i, j]
         inv_tau = 1.0 / tau_ij
 
-        tau_per_rho = ti.min(tau_ij / rho_ij, max_f32)
+        tau_per_rho = ti.min(tau_ij / rho_ij, max_float)
         s = float(nodetype[i, j] <= 0)
         u0 = u[0, i, j] + s * Fg[0, i, j] * tau_per_rho
         u1 = u[1, i, j] + s * Fg[1, i, j] * tau_per_rho
@@ -297,9 +296,9 @@ def collide_updated():
         s2 = 1.0 - s1
         tau_ij = tau[i, j]
         rho_ij = rho[i, j]
-        inv_tau = ti.min(1.0 / tau_ij, max_f32)
-        rho_per_tau = ti.min(inv_tau * rho_ij, max_f32)
-        tau_per_rho = ti.min(tau_ij / rho_ij, max_f32)
+        inv_tau = ti.min(1.0 / tau_ij, max_float)
+        rho_per_tau = ti.min(inv_tau * rho_ij, max_float)
+        tau_per_rho = ti.min(tau_ij / rho_ij, max_float)
 
         ux = u[0, i, j] + s1 * Fg[0, i, j] * tau_per_rho
         uy = u[1, i, j] + s1 * Fg[1, i, j] * tau_per_rho
@@ -314,15 +313,15 @@ def collide_updated():
         # fmt: off
         # Compute equilibrium distribution function explicitly
         feq = ti.static([
-            -2.0/3.00 * ux2 - 2.0/3.0 * uy2 + 4.0/9.0,
-             1.0/3.00 * ux2 + 1.0/3.0 * ux - 1.0/6.0 * uy2 + 1.0/9.0,
-             1.0/3.00 * uy2 - 1.0/6.0 * ux2 + 1.0/3.0 * uy + 1.0/9.0,
-            -1.0/24.0 * ux2 + 1.0/12.0 * ux - 1.0/24.0 * uy2 + 1.0/12.0 * uy + 1.0/8.0 * sum_sq + 1.0/36.0,
-            -1.0/24.0 * ux2 + 1.0/12.0 * ux - 1.0/24.0 * uy2 - 1.0/12.0 * uy + 1.0/8.0 * dif_sq + 1.0/36.0,
-             1.0/3.00 * ux2 - 1.0/3.0 * ux - 1.0/6.0 * uy2 + 1.0/9.0,
-             1.0/3.00 * uy2 - 1.0/6.0 * ux2 - 1.0/3.0 * uy + 1.0/9.0,
-            -1.0/24.0 * ux2 - 1.0/12.0 * ux - 1.0/24.0 * uy2 - 1.0/12.0 * uy + 1.0/8.0 * sum_sq + 1.0/36.0,
-            -1.0/24.0 * ux2 - 1.0/12.0 * ux - 1.0/24.0 * uy2 + 1.0/12.0 * uy + 1.0/8.0 * dif_sq + 1.0/36.0,
+            1.00 * (-2.0/3.00 * ux2 - 2.0/3.0 * uy2                                                   + 4.0/9.0),
+            1.00 * ( 1.0/3.00 * ux2 + 1.0/3.0 * ux  - 1.0/6.0 * uy2                                   + 1.0/9.0),
+            1.00 * ( 1.0/3.00 * uy2 - 1.0/6.0 * ux2 + 1.0/3.0 * uy                                    + 1.0/9.0),
+            1.00 * (-1.0/24.00 * ux2 + 1.0/12.0 * ux  - 1.0/24.0 * uy2 + 1.0/12.0 * uy + 1.0/8.0 * sum_sq + 1.0/36.0),
+            1.00 * (-1.0/24.00 * ux2 + 1.0/12.0 * ux  - 1.0/24.0 * uy2 - 1.0/12.0 * uy + 1.0/8.0 * dif_sq + 1.0/36.0),
+            1.00 * ( 1.0/3.00 * ux2 - 1.0/3.0 * ux  - 1.0/6.0 * uy2                                   + 1.0/9.0),
+            1.00 * ( 1.0/3.00 * uy2 - 1.0/6.0 * ux2 - 1.0/3.0 * uy                                    + 1.0/9.0),
+            1.00 * (-1.0/24.00 * ux2 - 1.0/12.0 * ux  - 1.0/24.0 * uy2 - 1.0/12.0 * uy + 1.0/8.0 * sum_sq + 1.0/36.0),
+            1.00 * (-1.0/24.00 * ux2 - 1.0/12.0 * ux  - 1.0/24.0 * uy2 + 1.0/12.0 * uy + 1.0/8.0 * dif_sq + 1.0/36.0),
         ])
         # fmt: on
 
@@ -346,12 +345,12 @@ def collide_updated():
 def init():
     for i, j in ti.ndrange(ny, nx):
         rho[i, j] = 1.0
-        tau[i, j] = 1.0
+        tau[i, j] = 0.5
 
         u[0, i, j] = 0.0
         u[1, i, j] = 0.0
 
-        Fg[0, i, j] = 1
+        Fg[0, i, j] = 1.0
         Fg[1, i, j] = 0.0
 
         nodetype[i, j] = int(i == 0) or (i == (ny - 1))

@@ -297,9 +297,10 @@ def collide_updated():
         tau_ij = tau[i, j]
         rho_ij = rho[i, j]
         inv_tau = ti.min(1.0 / tau_ij, max_f32)
+        tau_per_rho = ti.min(tau_ij / rho_ij, max_f32)
 
-        u[0, i, j] += s * Fg[0, i, j] * tau_ij / rho_ij
-        u[1, i, j] += s * Fg[1, i, j] * tau_ij / rho_ij
+        u[0, i, j] += s * Fg[0, i, j] * tau_per_rho
+        u[1, i, j] += s * Fg[1, i, j] * tau_per_rho
 
         # fmt: off
         # Compute equilibrium distribution function explicitly

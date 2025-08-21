@@ -300,8 +300,8 @@ def collide():
 @ti.kernel
 def init():
     for i, j in ti.ndrange(ny, nx):
-        rho[i, j] = 1.1
-        tau[i, j] = 1.15
+        rho[i, j] = 1.0
+        tau[i, j] = 1.0
 
         u[0, i, j] = 0.0
         u[1, i, j] = 0.0
@@ -318,8 +318,13 @@ def init():
 def old():
     init()
     compute_edf_old()
+    collide_old()
+    stream_and_bounce_old()
+    compute_macro_vars_old()
+    ti.sync()
+
     t0 = time.time()
-    for _ in range(niters):
+    for _ in range(niters - 1):
         collide_old()
         stream_and_bounce_old()
         compute_macro_vars_old()
@@ -332,8 +337,13 @@ def old():
 def optimized():
     init()
     compute_edf()
+    collide()
+    stream_and_bounce()
+    compute_macro_vars()
+    ti.sync()
+
     t0 = time.time()
-    for _ in range(niters):
+    for _ in range(niters - 1):
         collide()
         stream_and_bounce()
         compute_macro_vars()

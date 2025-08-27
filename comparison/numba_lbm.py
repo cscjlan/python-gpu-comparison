@@ -15,13 +15,14 @@ max_float = np.finfo(dtype).max
 def compute_edf(rho, u, nodetype, f, ex, ey, w, es):
     tidx, tidy = cuda.grid(2)
     stridex, stridey = cuda.gridsize(2)
-    nx, ny = nodetype.shape
+    ny, nx = nodetype.shape
 
-    for i in range(tidy, stridey, ny):
-        for j in range(tidx, stridex, nx):
+    for i in range(tidy, ny, stridey):
+        for j in range(tidx, nx, stridex):
             s = nb_dtype(nodetype[i, j] <= 0)
             ux = u[0, i, j]
             uy = u[1, i, j]
+            rho_ij = rho[i, j]
             for q in range(9):
                 exq = ex[q]
                 eyq = ey[q]
@@ -38,7 +39,7 @@ def compute_edf(rho, u, nodetype, f, ex, ey, w, es):
                 term1 = inv_es_sq * (exq * ux + eyq * uy)
                 term2 = 0.5 * inv_es_sq * (inv_es_sq * eu2 - u2)
                 f_old = f[q, i, j]
-                f_new = w[q] * rho[i, j] * (1.0 + term1 + term2)
+                f_new = w[q] * rho_ij * (1.0 + term1 + term2)
                 f[q, i, j] = s * f_new + (1.0 - s) * f_old
 
 
@@ -46,10 +47,10 @@ def compute_edf(rho, u, nodetype, f, ex, ey, w, es):
 def compute_macro_vars(f, nodetype, rho, u, ex, ey):
     tidx, tidy = cuda.grid(2)
     stridex, stridey = cuda.gridsize(2)
-    nx, ny = nodetype.shape
+    ny, nx = nodetype.shape
 
-    for i in range(tidy, stridey, ny):
-        for j in range(tidx, stridex, nx):
+    for i in range(tidy, ny, stridey):
+        for j in range(tidx, nx, stridex):
             s = nb_dtype(nodetype[i, j] <= 0)
             rho_ij = nb_dtype(0.0)
             fdotex = nb_dtype(0.0)
@@ -61,7 +62,7 @@ def compute_macro_vars(f, nodetype, rho, u, ex, ey):
                 fdotex += f_qij * ex[q]
                 fdotey += f_qij * ey[q]
 
-            inv_rho = min(1.0 / rho_ij, max_float)
+            inv_rho = max_float if rho_ij == 0.0 else 1.0 / rho_ij
 
             rho[i, j] = s * rho_ij
             u[0, i, j] = s * fdotex * inv_rho
@@ -74,8 +75,8 @@ def stream_and_bounce(f, nodetype, ex, ey):
     stridex, stridey = cuda.gridsize(2)
     nx, ny = nodetype.shape
 
-    for i in range(tidy, stridey, ny):
-        for j in range(tidx, stridex, nx):
+    for i in range(tidy, ny, stridey):
+        for j in range(tidx, nx, stridex):
             s1 = nb_dtype(nodetype[i, j] <= 0)
             for q in range(1, 5):
                 nexti = (ny + int(i - ey[q])) % ny
@@ -94,17 +95,17 @@ def stream_and_bounce(f, nodetype, ex, ey):
 def collide(f, rho, u, nodetype, tau, Fg):
     tidx, tidy = cuda.grid(2)
     stridex, stridey = cuda.gridsize(2)
-    nx, ny = nodetype.shape
+    ny, nx = nodetype.shape
 
-    for i in range(tidy, stridey, ny):
-        for j in range(tidx, stridex, nx):
+    for i in range(tidy, ny, stridey):
+        for j in range(tidx, nx, stridex):
             s1 = nb_dtype(nodetype[i, j] <= 0)
             s2 = 1.0 - s1
             tau_ij = tau[i, j]
             rho_ij = rho[i, j]
-            inv_tau = min(1.0 / tau_ij, max_float)
-            third_rho_per_tau = 0.333333 * min(inv_tau * rho_ij, max_float)
-            tau_per_rho = min(tau_ij / rho_ij, max_float)
+            inv_tau = max_float if tau_ij == 0.0 else 1.0 / tau_ij
+            tau_per_rho = max_float if rho_ij == 0.0 else tau_ij / rho_ij
+            third_rho_per_tau = 0.333333 * inv_tau * rho_ij
 
             ux = u[0, i, j] + s1 * Fg[0, i, j] * tau_per_rho
             uy = u[1, i, j] + s1 * Fg[1, i, j] * tau_per_rho
@@ -207,15 +208,11 @@ def main():
     collide[blocks_per_grid, threads_per_block](
         f_d, rho_d, u_d, nodetype_d, tau_d, Fg_d
     )
+
     stream_and_bounce[blocks_per_grid, threads_per_block](f_d, nodetype_d, ex_d, ey_d)
     compute_macro_vars[blocks_per_grid, threads_per_block](
         f_d, nodetype_d, rho_d, u_d, ex_d, ey_d
     )
-
-    u = u_d.copy_to_host()
-    if np.any(np.isnan(u)):
-        print("Nan in u")
-        exit(1)
 
     # Sync before starting timing
     cuda.synchronize()
@@ -230,6 +227,7 @@ def main():
         compute_macro_vars[blocks_per_grid, threads_per_block](
             f_d, nodetype_d, rho_d, u_d, ex_d, ey_d
         )
+
     cuda.synchronize()
     t1 = time.time()
 
@@ -240,9 +238,8 @@ def main():
     print("MLUPS:", mlups)
     print("Time taken", t1 - t0)
 
-    plt.figure()
-    plt.plot(u[0][:, int(nx / 2)])
-    plt.savefig(sys.argv[3], dpi=300)
+    plt.imsave("u0" + sys.argv[3] + ".png", u[0])
+    plt.imsave("u1" + sys.argv[3] + ".png", u[1])
 
 
 if __name__ == "__main__":

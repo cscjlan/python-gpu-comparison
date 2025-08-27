@@ -215,6 +215,7 @@ def test_lb():
     collide_gpu[blocks_per_grid, threads_per_block](
         f_d, rho_d, u_d, nodetype_d, tau_d, Fg_d
     )
+
     stream_and_bounce_gpu[blocks_per_grid, threads_per_block](f_d, nodetype_d, ex, ey)
     compute_macro_vars_gpu[blocks_per_grid, threads_per_block](
         f_d, nodetype_d, rho_d, u_d
@@ -243,9 +244,8 @@ def test_lb():
     print("MLUPS:", mlups)
     print("Time taken", t1 - t0)
 
-    plt.figure()
-    plt.plot(u[0][:, int(nx / 2)])
-    plt.savefig(sys.argv[3], dpi=300)
+    plt.imsave("u0" + sys.argv[3] + ".png", u[0])
+    plt.imsave("u1" + sys.argv[3] + ".png", u[1])
 
 
 if __name__ == "__main__":

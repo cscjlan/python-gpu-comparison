@@ -161,36 +161,11 @@ def collide(f, rho, u, nodetype, tau, Fg):
             u[1, i, j] = uy
 
 
-def main():
-    if len(sys.argv) < 4:
-        print("Give nx, ny and plot filename as arguments", file=sys.stderr)
-        exit(1)
-
-    nx = int(sys.argv[1])
-    ny = int(sys.argv[2])
-
-    with open("input.json", "r") as f:
-        j = json.load(f)
-    niters = j["niters"]
-
-    rho = np.ones((ny, nx), dtype=dtype) * j["rho"]
-    tau = np.ones((ny, nx), dtype=dtype) * j["tau"]
-    u = np.zeros((2, ny, nx), dtype=dtype)
-    Fg = np.zeros((2, ny, nx), dtype=dtype)
-    Fg[0, :, :] = j["fg"]
-    nodetype = np.zeros((ny, nx), dtype=dtype)
-    nodetype[0, :] = 1
-    nodetype[-1, :] = 1
-    f = np.zeros((9, ny, nx), dtype=dtype)
-    ex = j["ex"]
-    ey = j["ey"]
-    es = j["es"]
-    w = j["w"]
-
+def run(f, u, rho, tau, Fg, nodetype, ex, ey, w, es, niters):
     # GPU Memory Allocation
     f_d = cuda.to_device(f)
-    rho_d = cuda.to_device(rho)
     u_d = cuda.to_device(u)
+    rho_d = cuda.to_device(rho)
     tau_d = cuda.to_device(tau)
     Fg_d = cuda.to_device(Fg)
     nodetype_d = cuda.to_device(nodetype)
@@ -234,12 +209,43 @@ def main():
     f = f_d.copy_to_host()
     u = u_d.copy_to_host()
 
-    mlups = (ny * nx * niters * 1e-6) / (t1 - t0)
-    print("MLUPS:", mlups)
-    print("Time taken", t1 - t0)
+    return u, t1 - t0
 
-    plt.imsave("u0" + sys.argv[3] + ".png", u[0])
-    plt.imsave("u1" + sys.argv[3] + ".png", u[1])
+
+def main():
+    if len(sys.argv) < 4:
+        print("Give nx, ny and plot filename as arguments", file=sys.stderr)
+        exit(1)
+
+    nx = int(sys.argv[1])
+    ny = int(sys.argv[2])
+
+    with open("input.json", "r") as f:
+        j = json.load(f)
+    niters = j["niters"]
+
+    rho = np.ones((ny, nx), dtype=dtype) * j["rho"]
+    tau = np.ones((ny, nx), dtype=dtype) * j["tau"]
+    u = np.zeros((2, ny, nx), dtype=dtype)
+    Fg = np.zeros((2, ny, nx), dtype=dtype)
+    Fg[0, :, :] = j["fg"]
+    nodetype = np.zeros((ny, nx), dtype=dtype)
+    nodetype[0, :] = 1
+    nodetype[-1, :] = 1
+    f = np.zeros((9, ny, nx), dtype=dtype)
+    ex = j["ex"]
+    ey = j["ey"]
+    es = j["es"]
+    w = j["w"]
+
+    u, elapsed = run(f, u, rho, tau, Fg, nodetype, ex, ey, w, es, niters)
+
+    mlups = (ny * nx * niters * 1e-6) / elapsed
+    print("MLUPS:", mlups)
+    print("Time taken", elapsed)
+
+    plt.imsave("u0_" + sys.argv[3] + ".png", u[0])
+    plt.imsave("u1_" + sys.argv[3] + ".png", u[1])
 
 
 if __name__ == "__main__":

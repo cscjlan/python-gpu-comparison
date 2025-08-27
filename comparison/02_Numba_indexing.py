@@ -164,8 +164,8 @@ def stream_and_bounce_gpu(f, nodetype, ex, ey):
 
 
 def test_lb():
-    if len(sys.argv) < 3:
-        print("Give nx and ny as arguments", file=sys.stderr)
+    if len(sys.argv) < 4:
+        print("Give nx, ny and plot filename as arguments", file=sys.stderr)
         exit(1)
 
     nx = int(sys.argv[1])
@@ -243,9 +243,9 @@ def test_lb():
     print("MLUPS:", mlups)
     print("Time taken", t1 - t0)
 
-    plt.figure(2)
+    plt.figure()
     plt.plot(u[0][:, int(nx / 2)])
-    plt.savefig("profile_numba_indexing_swap", dpi=300)
+    plt.savefig(sys.argv[3], dpi=300)
 
 
 if __name__ == "__main__":

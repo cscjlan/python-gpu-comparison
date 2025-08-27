@@ -7,7 +7,8 @@ import time
 import json
 
 nb_dtype = nb.float32
-max_float = np.finfo(np.float32).max
+dtype = np.float32
+max_float = np.finfo(dtype).max
 
 
 @cuda.jit
@@ -56,9 +57,9 @@ def compute_macro_vars(f, nodetype, rho, u, ex, ey):
 
             for q in range(9):
                 f_qij = f[q, i, j]
-                rho_ij = rho_ij + f_qij
-                fdotex = fdotex + f_qij * ex[q]
-                fdotey = fdotey + f_qij * ey[q]
+                rho_ij += f_qij
+                fdotex += f_qij * ex[q]
+                fdotey += f_qij * ey[q]
 
             inv_rho = min(1.0 / rho_ij, max_float)
 
@@ -160,8 +161,8 @@ def collide(f, rho, u, nodetype, tau, Fg):
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("Give nx and ny as arguments", file=sys.stderr)
+    if len(sys.argv) < 4:
+        print("Give nx, ny and plot filename as arguments", file=sys.stderr)
         exit(1)
 
     nx = int(sys.argv[1])
@@ -170,8 +171,6 @@ def main():
     with open("input.json", "r") as f:
         j = json.load(f)
     niters = j["niters"]
-
-    dtype = np.float32
 
     rho = np.ones((ny, nx), dtype=dtype) * j["rho"]
     tau = np.ones((ny, nx), dtype=dtype) * j["tau"]
@@ -213,6 +212,11 @@ def main():
         f_d, nodetype_d, rho_d, u_d, ex_d, ey_d
     )
 
+    u = u_d.copy_to_host()
+    if np.any(np.isnan(u)):
+        print("Nan in u")
+        exit(1)
+
     # Sync before starting timing
     cuda.synchronize()
     t0 = time.time()
@@ -236,9 +240,9 @@ def main():
     print("MLUPS:", mlups)
     print("Time taken", t1 - t0)
 
-    plt.figure(2)
+    plt.figure()
     plt.plot(u[0][:, int(nx / 2)])
-    plt.savefig("profile_numba_indexing_swap", dpi=300)
+    plt.savefig(sys.argv[3], dpi=300)
 
 
 if __name__ == "__main__":

@@ -181,7 +181,7 @@ def test_lb():
     tau = np.ones((ny, nx), dtype=dtype) * j["tau"]
     u = np.zeros((2, ny, nx), dtype=dtype)
     Fg = np.zeros((2, ny, nx), dtype=dtype)
-    Fg[0, :, :] = j["fg"]
+    Fg[0, :, :] = j["Fg"]
     nodetype = np.zeros((ny, nx), dtype=dtype)
     nodetype[0, :] = 1
     nodetype[-1, :] = 1

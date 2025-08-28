@@ -1,10 +1,8 @@
-import sys
 import numpy as np
 import numba as nb
 from numba import cuda
 import matplotlib.pyplot as plt
-import time
-import json
+from boilerplate.runner import run
 
 
 @cuda.jit
@@ -153,64 +151,8 @@ def collide(f, rho, u, nodetype, tau, Fg, max_float):
             u[1, i, j] = uy
 
 
-class Inputs:
-    def __init__(self):
-        if len(sys.argv) < 5:
-            print(
-                "Give nx, ny, json input file and plot filename as arguments",
-                file=sys.stderr,
-            )
-            exit(1)
-
-        self.nx = int(sys.argv[1])
-        self.ny = int(sys.argv[2])
-        self.input_filename = sys.argv[3]
-        self.output_filename = sys.argv[4]
-
-        with open(self.input_filename, "r") as f:
-            j = json.load(f)
-
-        self.dtype = np.float32 if j["dtype"] == "f32" else np.float64
-        self.niters = j["niters"]
-        self.ex = j["ex"]
-        self.ey = j["ey"]
-        self.es = j["es"]
-        self.w = j["w"]
-        self.Fg = j["Fg"]
-        self.rho = j["rho"]
-        self.tau = j["tau"]
-
-
-class HostData:
-    def __init__(self, inputs: Inputs):
-        shape_1 = (inputs.ny, inputs.nx)
-        shape_2 = (2, inputs.ny, inputs.nx)
-        shape_9 = (9, inputs.ny, inputs.nx)
-
-        self.rho = np.ones(shape_1, dtype=inputs.dtype) * inputs.rho
-        self.tau = np.ones(shape_1, dtype=inputs.dtype) * inputs.tau
-        self.u = np.zeros(shape_2, dtype=inputs.dtype)
-
-        self.Fg = np.zeros(shape_2, dtype=inputs.dtype)
-        self.Fg[0, :, :] = inputs.Fg
-
-        self.nodetype = np.zeros(shape_1, dtype=inputs.dtype)
-        self.nodetype[0, :] = 1
-        self.nodetype[-1, :] = 1
-
-        self.f = np.zeros(shape_9, dtype=inputs.dtype)
-        self.ex = inputs.ex
-        self.ey = inputs.ey
-        self.w = inputs.w
-        self.es = inputs.es
-
-    def output(self, inputs):
-        plt.imsave("u0_" + inputs.output_filename + ".png", self.u[0])
-        plt.imsave("u1_" + inputs.output_filename + ".png", self.u[1])
-
-
 class NumbaLBM:
-    def __init__(self, host_data: HostData):
+    def initialize(self, host_data):
         self.threads_per_block = (32, 16)
         self.blocks_per_grid = (32, 64)
         self.max_float = np.finfo(host_data.rho.dtype).max
@@ -226,7 +168,6 @@ class NumbaLBM:
         self.w = cuda.to_device(host_data.w)
         self.es = host_data.es
 
-    def initialize(self):
         compute_edf[self.blocks_per_grid, self.threads_per_block](
             self.rho,
             self.u,
@@ -261,7 +202,7 @@ class NumbaLBM:
             self.max_float,
         )
 
-    def copy_to_host(self, host_data: HostData):
+    def copy_to_host(self, host_data):
         host_data.f = self.f.copy_to_host()
         host_data.u = self.u.copy_to_host()
         host_data.rho = self.rho.copy_to_host()
@@ -274,35 +215,9 @@ class NumbaLBM:
 
         return host_data
 
-
-def run(runner, inputs: Inputs):
-    # Initialize and run one iteration to clear the pipes
-    runner.initialize()
-    runner.iterate()
-    cuda.synchronize()
-
-    t0 = time.time()
-    for _ in range(inputs.niters - 1):
-        runner.iterate()
-    cuda.synchronize()
-    t1 = time.time()
-
-    elapsed = t1 - t0
-    mlups = (inputs.ny * inputs.nx * inputs.niters * 1e-6) / elapsed
-    print("MLUPS:", mlups)
-    print("Time taken", elapsed)
-
-
-def main():
-    inputs = Inputs()
-    host_data = HostData(inputs)
-
-    runner = NumbaLBM(host_data)
-
-    run(runner, inputs)
-    host_data = runner.copy_to_host(host_data)
-    host_data.output(inputs)
+    def synchronize(self):
+        cuda.synchronize()
 
 
 if __name__ == "__main__":
-    main()
+    run(NumbaLBM())

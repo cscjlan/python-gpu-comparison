@@ -1,7 +1,6 @@
 import numpy as np
 import numba as nb
 from numba import cuda
-import matplotlib.pyplot as plt
 from boilerplate.runner import run
 
 

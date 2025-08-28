@@ -4,15 +4,15 @@ from boilerplate.runner import run
 
 class NumpyLBM:
     def initialize(self, host_data):
-        self.f = host_data.f
-        self.u = host_data.u
-        self.rho = host_data.rho
-        self.tau = host_data.tau
-        self.Fg = host_data.Fg
-        self.nodetype = host_data.nodetype
-        self.ex = host_data.ex
-        self.ey = host_data.ey
-        self.w = host_data.w
+        self.f = np.array(host_data.f)
+        self.u = np.array(host_data.u)
+        self.rho = np.array(host_data.rho)
+        self.tau = np.array(host_data.tau)
+        self.Fg = np.array(host_data.Fg)
+        self.nodetype = np.array(host_data.nodetype)
+        self.ex = np.array(host_data.ex)
+        self.ey = np.array(host_data.ey)
+        self.w = np.array(host_data.w)
         self.es = host_data.es
 
         self.compute_edf()
@@ -44,7 +44,7 @@ class NumpyLBM:
         u2_sum = np.sum(u2, axis=0)
 
         s = self.nodetype <= 0
-        inv_es_sq = 3.0
+        inv_es_sq = 1.0 / (self.es * self.es)
 
         euxy = np.outer(self.ex * self.ey, uxy).reshape(self.f.shape)
         euxx = np.outer(self.ex * self.ex, u2[0]).reshape(self.f.shape)
@@ -136,7 +136,7 @@ class NumpyLBM:
         # 4 <--> 8
         q = np.arange(9)
         l = ((q + 3 & 7) + 1) * (q != 0)
-        f_eq = np.outer(multipliers[l], rho_per_three).reshape(self.f.shape) * (
+        f_eq = np.outer(multipliers, rho_per_three).reshape(self.f.shape) * (
             f_updated + 0.33333333
         )
 

@@ -12,31 +12,22 @@ def compute_edf(rho, u, nodetype, f, ex, ey, w, es):
     tidx, tidy = cuda.grid(2)
     stridex, stridey = cuda.gridsize(2)
     ny, nx = nodetype.shape
-    dtype = nb.typeof(f[0, 0, 0])
 
     for i in range(tidy, ny, stridey):
         for j in range(tidx, nx, stridex):
-            s = dtype(nodetype[i, j] <= 0)
+            s = nb.float32(nodetype[i, j] <= 0)
             ux = u[0, i, j]
             uy = u[1, i, j]
             rho_ij = rho[i, j]
             for q in range(9):
-                exq = ex[q]
-                eyq = ey[q]
+                eux = ux * ex[q]
+                euy = uy * ey[q]
                 inv_es_sq = 1.0 / (es * es)
-
-                ux2 = ux * ux
-                uy2 = uy * uy
-                euxy = exq * eyq * ux * uy
-                euxx = exq * exq * ux2
-                euyy = eyq * eyq * uy2
-                eu2 = 2.0 * euxy + euxx + euyy
-                u2 = ux2 + uy2
-
-                term1 = inv_es_sq * (exq * ux + eyq * uy)
-                term2 = 0.5 * inv_es_sq * (inv_es_sq * eu2 - u2)
-                f_old = f[q, i, j]
+                eu2 = 2.0 * eux * euy + eux * eux + euy * euy
+                term1 = inv_es_sq * (eux + euy)
+                term2 = 0.5 * inv_es_sq * (inv_es_sq * eu2 - (ux * ux + uy * uy))
                 f_new = w[q] * rho_ij * (1.0 + term1 + term2)
+                f_old = f[q, i, j]
                 f[q, i, j] = s * f_new + (1.0 - s) * f_old
 
 
@@ -45,14 +36,13 @@ def compute_macro_vars(f, nodetype, rho, u, ex, ey, max_float):
     tidx, tidy = cuda.grid(2)
     stridex, stridey = cuda.gridsize(2)
     ny, nx = nodetype.shape
-    dtype = nb.typeof(f[0, 0, 0])
 
     for i in range(tidy, ny, stridey):
         for j in range(tidx, nx, stridex):
-            s = dtype(nodetype[i, j] <= 0)
-            rho_ij = dtype(0.0)
-            fdotex = dtype(0.0)
-            fdotey = dtype(0.0)
+            s = nb.float32(nodetype[i, j] <= 0)
+            rho_ij = nb.float32(0.0)
+            fdotex = nb.float32(0.0)
+            fdotey = nb.float32(0.0)
 
             for q in range(9):
                 f_qij = f[q, i, j]
@@ -72,16 +62,15 @@ def stream_and_bounce(f, nodetype, ex, ey):
     tidx, tidy = cuda.grid(2)
     stridex, stridey = cuda.gridsize(2)
     nx, ny = nodetype.shape
-    dtype = nb.typeof(f[0, 0, 0])
 
     for i in range(tidy, ny, stridey):
         for j in range(tidx, nx, stridex):
-            s1 = dtype(nodetype[i, j] <= 0)
+            s1 = nb.float32(nodetype[i, j] <= 0)
             for q in range(1, 5):
                 nexti = (ny + int(i - ey[q])) % ny
                 nextj = (nx + int(j + ex[q])) % nx
 
-                s2 = dtype(nodetype[nexti, nextj] <= 0)
+                s2 = nb.float32(nodetype[nexti, nextj] <= 0)
                 s = s1 * s2
                 f1 = f[q, nexti, nextj]
                 f2 = f[q + 4, i, j]
@@ -90,16 +79,32 @@ def stream_and_bounce(f, nodetype, ex, ey):
                 f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
 
 
+# Globals are treated as compile time constants
+# maybe it applies to arrays as well?
+multiplier = np.array(
+    [
+        2.00,
+        1.00,
+        1.00,
+        0.25,
+        0.25,
+        1.00,
+        1.00,
+        0.25,
+        0.25,
+    ]
+)
+
+
 @cuda.jit
 def collide(f, rho, u, nodetype, tau, Fg, max_float):
     tidx, tidy = cuda.grid(2)
     stridex, stridey = cuda.gridsize(2)
     ny, nx = nodetype.shape
-    dtype = nb.typeof(f[0, 0, 0])
 
     for i in range(tidy, ny, stridey):
         for j in range(tidx, nx, stridex):
-            s1 = dtype(nodetype[i, j] <= 0)
+            s1 = nb.float32(nodetype[i, j] <= 0)
             s2 = 1.0 - s1
             tau_ij = tau[i, j]
             rho_ij = rho[i, j]
@@ -117,29 +122,16 @@ def collide(f, rho, u, nodetype, tau, Fg, max_float):
             ux2_m_ux = ux2 - ux
             uy2_p_uy = uy2 + uy
             uy2_m_uy = uy2 - uy
-            half_ux2 = 0.5 * ux2
-            half_uy2 = 0.5 * uy2
-
-            multiplier = cuda.local.array(shape=9, dtype=dtype)
-            multiplier[0] = 2.00
-            multiplier[1] = 1.00
-            multiplier[2] = 1.00
-            multiplier[3] = 0.25
-            multiplier[4] = 0.25
-            multiplier[5] = 1.00
-            multiplier[6] = 1.00
-            multiplier[7] = 0.25
-            multiplier[8] = 0.25
 
             # Compute equilibrium distribution function explicitly
-            feq = cuda.local.array(shape=9, dtype=dtype)
+            feq = cuda.local.array(shape=9, dtype=f.dtype)
             feq[0] = -ux2 - uy2 + 0.333333
-            feq[1] = ux2_p_ux - half_uy2
-            feq[2] = uy2_p_uy - half_ux2
+            feq[1] = ux2_p_ux - 0.5 * uy2
+            feq[2] = uy2_p_uy - 0.5 * ux2
             feq[3] = ux2_p_ux + uy2_p_uy + uxy3
             feq[4] = ux2_p_ux + uy2_m_uy - uxy3
-            feq[5] = ux2_m_ux - half_uy2
-            feq[6] = uy2_m_uy - half_ux2
+            feq[5] = ux2_m_ux - 0.5 * uy2
+            feq[6] = uy2_m_uy - 0.5 * ux2
             feq[7] = ux2_m_ux + uy2_m_uy + uxy3
             feq[8] = ux2_m_ux + uy2_p_uy - uxy3
 
@@ -219,11 +211,9 @@ class HostData:
 
 class NumbaLBM:
     def __init__(self, host_data: HostData):
-        dtype = host_data.rho.dtype
-
-        self.threads_per_block = (16, 16)
-        self.blocks_per_grid = (64, 64)
-        self.max_float = np.finfo(dtype).max
+        self.threads_per_block = (32, 16)
+        self.blocks_per_grid = (32, 64)
+        self.max_float = np.finfo(host_data.rho.dtype).max
 
         self.f = cuda.to_device(host_data.f)
         self.u = cuda.to_device(host_data.u)

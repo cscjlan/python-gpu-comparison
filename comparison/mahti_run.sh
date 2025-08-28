@@ -11,4 +11,4 @@ ml gcc/11.2.0
 ml cuda/11.5.0
 
 srun python3 numba_lbm.py 4000 4000 input.json numba
-srun python3 torch_lbm.py 4000 4000 input.json torch
+srun python3 numpy_lbm.py 4000 4000 input.json numpy

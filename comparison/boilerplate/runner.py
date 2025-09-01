@@ -83,3 +83,4 @@ def run(lbm_impl):
 
     host_data = lbm_impl.copy_to_host(host_data)
     host_data.output(inputs)
+    lbm_impl.finish()

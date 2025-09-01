@@ -217,6 +217,9 @@ class NumbaLBM:
     def synchronize(self):
         cuda.synchronize()
 
+    def finish(self):
+        pass
+
 
 if __name__ == "__main__":
     run(NumbaLBM())

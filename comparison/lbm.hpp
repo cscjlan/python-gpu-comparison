@@ -172,11 +172,6 @@ void launch_kernel(const char *kernel_name, const char *file, int32_t line,
     }
 #endif
 }
-
-void *allocate(size_t num_bytes);
-void free(void *ptr);
-void memcpy(void *dst, const void *src, size_t num_bytes);
-void synchronize();
 } // namespace gpu
 
 // Here we have the device functions that are executed on the GPU
@@ -190,35 +185,28 @@ void compute_edf(dim3 *blocks, dim3 *threads, Args... args) {
             using ft =
                 std::remove_cv_t<std::remove_reference_t<decltype(f[0])>>;
 
+            auto index_from_page = [&index, &num_values](auto i) {
+                return index + i * num_values;
+            };
+
             const auto s = static_cast<ft>(nodetype[index] <= 0);
+            const auto ux = u[index];
+            const auto uy = u[index + num_values];
+            const auto rho_i = rho[index];
 
             static constexpr auto N = 9;
-            for (auto i = 0; i < N; i++) {
-                const auto u0 = u[index];
-                const auto u1 = u[index + num_values];
-                const auto exi = ex[i];
-                const auto eyi = ey[i];
-
-                const auto ux2 = u0 * u0;
-                const auto uy2 = u1 * u1;
-                const auto u2 = ux2 + uy2;
-                const auto euxy = exi * eyi * u0 * u1;
-                const auto euxx = exi * exi * ux2;
-                const auto euyy = eyi * eyi * uy2;
-                const auto eu2 = static_cast<ft>(2.0f) * euxy + euxx + euyy;
-
-                const auto inv_es_sq = static_cast<ft>(1.0f) / (es * es);
-                const auto term_order1 = inv_es_sq * (exi * u0 + eyi * u1);
-                const auto term_order2 =
-                    static_cast<ft>(0.5f) * inv_es_sq * (inv_es_sq * eu2 - u2);
-
-                const auto f_old = f[index + i * num_values];
-                const auto f_new =
-                    w[i] * rho[index] *
-                    (static_cast<ft>(1.0f) + term_order1 + term_order2);
-
-                f[index + i * num_values] =
-                    s * f_new + (static_cast<ft>(1.0f) - s) * f_old;
+            for (auto q = 0; q < N; q++) {
+                const auto eux = ux * ex[q];
+                const auto euy = uy * ey[q];
+                const auto inv_es_sq = 1.0f / (es * es);
+                const auto eu2 = 2.0f * eux * euy + eux * eux + euy * euy;
+                const auto term1 = inv_es_sq * (eux + euy);
+                const auto term2 =
+                    0.5f * inv_es_sq * (inv_es_sq * eu2 - (ux * ux + uy * uy));
+                const auto f_new = w[q] * rho_i * (1.0f + term1 + term2);
+                const auto idx = index_from_page(q);
+                const auto f_old = f[idx];
+                f[idx] = s * f_new + (1.0f - s) * f_old;
             }
         },
         args...);
@@ -233,87 +221,82 @@ void collide(dim3 *blocks, dim3 *threads, Args... args) {
             using ft =
                 std::remove_cv_t<std::remove_reference_t<decltype(f[0])>>;
 
-            const auto s = static_cast<ft>(nodetype[index] <= 0);
-
-            const auto rho_i = rho[index];
-            const auto tau_i = tau[index];
-            const auto tau_per_rho =
-                std::min(tau_i / rho_i, std::numeric_limits<ft>::max());
-
-            const int i = index + 0 * num_values;
-            const int j = index + 1 * num_values;
-
-            const auto u0 = u[i] + s * Fg[i] * tau_per_rho;
-            const auto u1 = u[j] + s * Fg[j] * tau_per_rho;
-            u[i] = u0;
-            u[j] = u1;
-
-            const auto u0_sq = u0 * u0;
-            const auto u1_sq = u1 * u1;
-            const auto u0_sq_p_u1_sq = static_cast<ft>(0.5f) * (u0_sq + u1_sq);
-            const auto u0_p_u1 = u0 + u1;
-            const auto u0_m_u1 = u0 - u1;
-            const auto u0_p_u1_sq = static_cast<ft>(1.5f) * u0_p_u1 * u0_p_u1;
-            const auto u0_m_u1_sq = static_cast<ft>(1.5f) * u0_m_u1 * u0_m_u1;
-
-            ft f_updated[9] = {
-                -u0_sq - u1_sq + static_cast<ft>(0.33333333f),
-                -static_cast<ft>(0.5f) * u1_sq + u0_sq + u0,
-                -static_cast<ft>(0.5f) * u0_sq + u1_sq + u1,
-                -u0_sq_p_u1_sq + u0_p_u1 + u0_p_u1_sq,
-                -u0_sq_p_u1_sq + u0_m_u1 + u0_m_u1_sq,
-                -static_cast<ft>(0.5f) * u1_sq + u0_sq - u0,
-                -static_cast<ft>(0.5f) * u0_sq + u1_sq - u1,
-                -u0_sq_p_u1_sq - u0_p_u1 + u0_p_u1_sq,
-                -u0_sq_p_u1_sq - u0_m_u1 + u0_m_u1_sq,
+            auto index_from_page = [&index, &num_values](auto i) {
+                return index + i * num_values;
             };
 
-            const auto rho_per_three = static_cast<ft>(0.333333f) * rho_i;
-            const auto inv_tau = std::min(static_cast<ft>(1.0f) / tau_i,
-                                          std::numeric_limits<ft>::max());
-            const auto tau_m_1 = tau_i - static_cast<ft>(1.0f);
+            const auto s1 = static_cast<ft>(nodetype[index] <= 0);
+            const auto s2 = 1.0f - s1;
+
+            const auto tau_i = tau[index];
+            const auto rho_i = rho[index];
+            const auto inv_tau =
+                tau_i == 0.0f ? std::numeric_limits<ft>::max() : 1.0f / tau_i;
+            const auto tau_per_rho =
+                rho_i == 0.0f ? std::numeric_limits<ft>::max() : tau_i / rho_i;
+            const auto third_rho_per_tau = 0.333333f * inv_tau * rho_i;
+
+            const int i = index_from_page(0);
+            const int j = index_from_page(1);
+
+            const auto ux = u[i] + s1 * Fg[i] * tau_per_rho;
+            const auto uy = u[j] + s1 * Fg[j] * tau_per_rho;
+
+            u[i] = ux;
+            u[j] = uy;
+
+            const auto ux2 = ux * ux;
+            const auto uy2 = uy * uy;
+            const auto uxy3 = 3.0f * ux * uy;
+            const auto ux2_p_ux = ux2 + ux;
+            const auto ux2_m_ux = ux2 - ux;
+            const auto uy2_p_uy = uy2 + uy;
+            const auto uy2_m_uy = uy2 - uy;
 
             static constexpr size_t N = 9;
             // clang-format off
-            static constexpr ft multipliers[N] = {
-                static_cast<ft>(2.00f),
-                static_cast<ft>(1.00f),
-                static_cast<ft>(1.00f),
-                static_cast<ft>(0.25f),
-                static_cast<ft>(0.25f),
-                static_cast<ft>(1.00f),
-                static_cast<ft>(1.00f),
-                static_cast<ft>(0.25f),
-                static_cast<ft>(0.25f),
+            ft feq[N] = {
+                -ux2 - uy2 + 0.333333f,
+                ux2_p_ux - 0.5f * uy2,
+                uy2_p_uy - 0.5f * ux2,
+                ux2_p_ux + uy2_p_uy + uxy3,
+                ux2_p_ux + uy2_m_uy - uxy3,
+                ux2_m_ux - 0.5f * uy2,
+                uy2_m_uy - 0.5f * ux2,
+                ux2_m_ux + uy2_m_uy + uxy3,
+                ux2_m_ux + uy2_p_uy - uxy3,
+            };
+
+            static constexpr ft multiplier[N] = {
+                2.00f,
+                1.00f,
+                1.00f,
+                0.25f,
+                0.25f,
+                1.00f,
+                1.00f,
+                0.25f,
+                0.25f,
             };
             // clang-format on
-            for (size_t i = 0; i < N; i++) {
-                const auto f_eq =
-                    multipliers[i] * rho_per_three *
-                    (f_updated[i] + static_cast<ft>(0.333333333f));
-                const auto f_old = f[index + i * num_values];
-                const auto f_new = inv_tau * (tau_m_1 * f_old + f_eq);
 
-                f_updated[i] = s * f_new + (static_cast<ft>(1.0f) - s) * f_old;
+            for (size_t q = 0; q < N; q++) {
+                const size_t li = index_from_page(q);
+                const auto f_old = f[li];
+                const auto f_new =
+                    (1.0f - inv_tau) * f_old +
+                    third_rho_per_tau * multiplier[q] * (feq[q] + 0.3333333f);
+                feq[q] = s2 * f_old + s1 * f_new;
             }
 
-            // clang-format off
-            // Update 1-8, such that pairs are swapped:
-            // 0 <--> 0
-            // 1 <--> 5
-            // 2 <--> 6
-            // 3 <--> 7
-            // 4 <--> 8
-            f[index + 0 * num_values] = s * f_updated[0] + (static_cast<ft>(1.0f) - s) * f_updated[0];
-            f[index + 1 * num_values] = s * f_updated[5] + (static_cast<ft>(1.0f) - s) * f_updated[1];
-            f[index + 2 * num_values] = s * f_updated[6] + (static_cast<ft>(1.0f) - s) * f_updated[2];
-            f[index + 3 * num_values] = s * f_updated[7] + (static_cast<ft>(1.0f) - s) * f_updated[3];
-            f[index + 4 * num_values] = s * f_updated[8] + (static_cast<ft>(1.0f) - s) * f_updated[4];
-            f[index + 5 * num_values] = s * f_updated[1] + (static_cast<ft>(1.0f) - s) * f_updated[5];
-            f[index + 6 * num_values] = s * f_updated[2] + (static_cast<ft>(1.0f) - s) * f_updated[6];
-            f[index + 7 * num_values] = s * f_updated[3] + (static_cast<ft>(1.0f) - s) * f_updated[7];
-            f[index + 8 * num_values] = s * f_updated[4] + (static_cast<ft>(1.0f) - s) * f_updated[8];
-            // clang-format on
+            for (size_t q = 1; q < 5; q++) {
+                const auto f1 = feq[q];
+                const auto f2 = feq[q + 4];
+                const size_t li1 = index_from_page(q);
+                const size_t li2 = index_from_page(q + 4);
+                f[li1] = s2 * f1 + s1 * f2;
+                f[li2] = s2 * f2 + s1 * f1;
+            }
         },
         args...);
 }
@@ -337,16 +320,15 @@ void stream_and_bounce(dim3 *blocks, dim3 *threads, Args... args) {
                 const auto next_j = (nx + j + static_cast<int>(ex[k])) % nx;
                 const auto index2 = next_i * nx + next_j;
                 const auto s2 = static_cast<ft>(nodetype[index2] <= 0);
-
-                const auto linear_index1 = index + (k + 4) * num_values;
-                const auto linear_index2 = index2 + k * num_values;
-                const auto f1 = f[linear_index1];
-                const auto f2 = f[linear_index2];
-
-                // s == 0 or s == 1
                 const auto s = s1 * s2;
-                f[linear_index1] = s * f2 + (static_cast<ft>(1.0f) - s) * f1;
-                f[linear_index2] = s * f1 + (static_cast<ft>(1.0f) - s) * f2;
+
+                const size_t li1 = k * num_values + index2;
+                const size_t li2 = (k + 4) * num_values + index;
+                const auto f1 = f[li1];
+                const auto f2 = f[li2];
+
+                f[li1] = (1.0f - s) * f1 + s * f2;
+                f[li2] = (1.0f - s) * f2 + s * f1;
             }
         },
         args...);
@@ -361,23 +343,27 @@ void compute_macro_vars(dim3 *blocks, dim3 *threads, Args... args) {
             using ft =
                 std::remove_cv_t<std::remove_reference_t<decltype(f[0])>>;
 
+            auto index_from_page = [&index, &num_values](auto i) {
+                return index + i * num_values;
+            };
+
+            const auto s = static_cast<ft>(nodetype[index] <= 0);
             auto rho_i = static_cast<ft>(0.0f);
             auto f_dot_ex = static_cast<ft>(0.0f);
             auto f_dot_ey = static_cast<ft>(0.0f);
-            for (int i = 0; i < 9; i++) {
-                const auto fi = f[index + i * num_values];
+            for (int q = 0; q < 9; q++) {
+                const auto fi = f[index_from_page(q)];
                 rho_i += fi;
-                f_dot_ex += ex[i] * fi;
-                f_dot_ey += ey[i] * fi;
+                f_dot_ex += fi * ex[q];
+                f_dot_ey += fi * ey[q];
             }
 
-            const auto s = static_cast<ft>(nodetype[index] <= 0);
-            const auto inv_rho = std::min(static_cast<ft>(1.0f) / rho_i,
-                                          std::numeric_limits<ft>::max());
+            const auto inv_rho =
+                rho_i == 0.0f ? std::numeric_limits<ft>::max() : 1.0f / rho_i;
 
             rho[index] = s * rho_i;
-            u[index + 0 * num_values] = s * f_dot_ex * inv_rho;
-            u[index + 1 * num_values] = s * f_dot_ey * inv_rho;
+            u[index_from_page(0)] = s * f_dot_ex * inv_rho;
+            u[index_from_page(1)] = s * f_dot_ey * inv_rho;
         },
         args...);
 }

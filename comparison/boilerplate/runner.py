@@ -51,14 +51,23 @@ class HostData:
         self.nodetype[-1, :] = 1
 
         self.f = np.zeros(shape_9, dtype=inputs.dtype)
-        self.ex = np.array(inputs.ex)
-        self.ey = np.array(inputs.ey)
-        self.w = np.array(inputs.w)
-        self.es = inputs.es
+        self.ex = np.array(inputs.ex, dtype=inputs.dtype)
+        self.ey = np.array(inputs.ey, dtype=inputs.dtype)
+        self.w = np.array(inputs.w, dtype=inputs.dtype)
+        self.es = inputs.dtype(inputs.es)
 
     def output(self, inputs):
         plt.imsave("u0_" + inputs.output_filename + ".png", self.u[0])
         plt.imsave("u1_" + inputs.output_filename + ".png", self.u[1])
+
+        plt.imsave("f0_" + inputs.output_filename + ".png", self.f[0])
+        plt.imsave("f1_" + inputs.output_filename + ".png", self.f[1])
+
+        plt.plot(self.u[0][:, int(self.u.shape[1] / 2)])
+        plt.savefig("profile_u_" + inputs.output_filename + ".png")
+
+        plt.plot(self.f[0][:, int(self.f.shape[1] / 2)])
+        plt.savefig("profile_f_" + inputs.output_filename + ".png")
 
 
 def run(lbm_impl):

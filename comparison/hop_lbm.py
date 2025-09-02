@@ -147,8 +147,6 @@ class HopLBM:
         self.hop.LBM_memcpy.argtypes = [ndptr, ndptr, ctypes.c_size_t]
         self.hop.LBM_memcpy(dst, src, total_bytes)
 
-        return dst
-
     def free(self, src: np.ndarray):
         ndptr = self.make_ndpointer(src)
         self.hop.LBM_free.argtypes = [ndptr]
@@ -191,15 +189,15 @@ class HopLBM:
         )
 
     def copy_to_host(self, host_data):
-        host_data.f = self.to_host(host_data.f, self.f)
-        host_data.u = self.to_host(host_data.u, self.u)
-        host_data.rho = self.to_host(host_data.rho, self.rho)
-        host_data.tau = self.to_host(host_data.tau, self.tau)
-        host_data.Fg = self.to_host(host_data.Fg, self.Fg)
-        host_data.nodetype = self.to_host(host_data.nodetype, self.nodetype)
-        host_data.ex = self.to_host(host_data.ex, self.ex)
-        host_data.ey = self.to_host(host_data.ey, self.ey)
-        host_data.w = self.to_host(host_data.w, self.w)
+        self.to_host(host_data.f, self.f)
+        self.to_host(host_data.u, self.u)
+        self.to_host(host_data.rho, self.rho)
+        self.to_host(host_data.tau, self.tau)
+        self.to_host(host_data.Fg, self.Fg)
+        self.to_host(host_data.nodetype, self.nodetype)
+        self.to_host(host_data.ex, self.ex)
+        self.to_host(host_data.ey, self.ey)
+        self.to_host(host_data.w, self.w)
 
         return host_data
 

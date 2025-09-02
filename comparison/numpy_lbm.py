@@ -167,6 +167,9 @@ class NumpyLBM:
         self.f[q, nexti, nextj] = (1.0 - s) * f1 + s * f2
         self.f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
 
+    def finish(self):
+        pass
+
 
 if __name__ == "__main__":
     run(NumpyLBM())

@@ -6,6 +6,9 @@ from boilerplate.runner import run
 class Dim3(ctypes.Structure):
     _fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int), ("z", ctypes.c_int)]
 
+    def __init__(self, x=1, y=1, z=1):
+        super(Dim3, self).__init__(x, y, z)
+
 
 class HopLBM:
     def initialize(self, host_data):
@@ -116,14 +119,14 @@ class HopLBM:
 
         # First allocate, then memcpy
         self.hop.LBM_malloc.argtypes = [ctypes.c_size_t]
-        self.hop.LBM_malloc.restype = ndptr
-        dst = self.hop.LBM_malloc(total_bytes)
+        self.hop.LBM_malloc.restype = ctypes.c_void_p
+        ptr = self.hop.LBM_malloc(total_bytes)
 
-        self.hop.LBM_memcpy.argtypes = [ndptr, ndptr, ctypes.c_size_t]
-        self.hop.LBM_memcpy(dst, src, total_bytes)
+        self.hop.LBM_memcpy.argtypes = [ctypes.c_void_p, ndptr, ctypes.c_size_t]
+        self.hop.LBM_memcpy(ptr, src, total_bytes)
 
         return np.ctypeslib.as_array(
-            ctypes.cast(dst, ctypes.POINTER(np.ctypeslib.as_ctypes_type(src.dtype))),
+            ctypes.cast(ptr, ctypes.POINTER(np.ctypeslib.as_ctypes_type(src.dtype))),
             shape=src.shape,
         )
 
@@ -147,7 +150,8 @@ class HopLBM:
         return dst
 
     def free(self, src: np.ndarray):
-        self.hop.LBM_free.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+        ndptr = self.make_ndpointer(src)
+        self.hop.LBM_free.argtypes = [ndptr]
         self.hop.LBM_free(src)
 
     def iterate(self):

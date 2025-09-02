@@ -51,9 +51,9 @@ class HostData:
         self.nodetype[-1, :] = 1
 
         self.f = np.zeros(shape_9, dtype=inputs.dtype)
-        self.ex = inputs.ex
-        self.ey = inputs.ey
-        self.w = inputs.w
+        self.ex = np.array(inputs.ex)
+        self.ey = np.array(inputs.ey)
+        self.w = np.array(inputs.w)
         self.es = inputs.es
 
     def output(self, inputs):

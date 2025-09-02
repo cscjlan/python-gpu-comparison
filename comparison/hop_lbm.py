@@ -9,11 +9,13 @@ class Dim3(ctypes.Structure):
 
 class HopLBM:
     def initialize(self, host_data):
-        self.hop = ctypes.CDLL("./hop.so")
+        self.hop = ctypes.CDLL("./lbm.so")
 
         self.threads_per_block = Dim3(32, 16)
         self.blocks_per_grid = Dim3(32, 64)
 
+        # These are numpy ndarrays reciding in device memory
+        # It's unsafe, but simplifies passing to C library
         self.f = self.to_device(host_data.f)
         self.u = self.to_device(host_data.u)
         self.rho = self.to_device(host_data.rho)

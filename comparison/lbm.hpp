@@ -1,12 +1,42 @@
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <hip/hip_runtime.h>
+#include <type_traits>
 
-#define LAUNCH_KERNEL(kernel, function, ...)                                   \
-    gpu::launch_kernel(#kernel, #function, __FILE__, __LINE__, kernel,         \
-                       function, __VA_ARGS__)
+#define LAUNCH_KERNEL(kernel, ...)                                             \
+    gpu::launch_kernel(#kernel, __FILE__, __LINE__, kernel, __VA_ARGS__)
 #define HIP_ERRCHK(result) gpu::hip_errchk(result, __FILE__, __LINE__)
 
 // Here we have generic GPU related boilerplate
 namespace gpu {
+inline void hip_errchk(hipError_t result, const char *file, int32_t line) {
+    if (result != hipSuccess) {
+        std::printf("\n\n%s in %s at line %d\n", hipGetErrorString(result),
+                    file, line);
+        exit(EXIT_FAILURE);
+    }
+}
+
+inline void *allocate(size_t num_bytes) {
+    void *ptr = nullptr;
+    HIP_ERRCHK(hipMalloc(&ptr, num_bytes));
+    if (ptr == nullptr) {
+        std::fprintf(stderr, "GPU malloc allocated a nullptr\n");
+        std::abort();
+    }
+
+    return ptr;
+}
+
+inline void free(void *ptr) { HIP_ERRCHK(hipFree(ptr)); }
+
+inline void memcpy(void *dst, const void *src, size_t num_bytes) {
+    HIP_ERRCHK(hipMemcpy(dst, src, num_bytes, hipMemcpyDefault));
+}
+
+inline void synchronize() { HIP_ERRCHK(hipDeviceSynchronize()); }
+
 template <typename F, typename... Args>
 __global__ void loop_kernel(F f, int nx, int ny, Args... args) {
     const auto tidx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -23,20 +53,13 @@ __global__ void loop_kernel(F f, int nx, int ny, Args... args) {
     }
 }
 
-static inline void hip_errchk(hipError_t result, const char *file,
-                              int32_t line) {
-    if (result != hipSuccess) {
-        printf("\n\n%s in %s at line %d\n", hipGetErrorString(result), file,
-               line);
-        exit(EXIT_FAILURE);
-    }
-}
+void hip_errchk(hipError_t result, const char *file, int32_t line);
 
-template <typename F, typename... Args>
-void launch_kernel(const char *kernel_name, const char *function_name,
-                   const char *file, int32_t line, void (*kernel)(F, Args...),
-                   F f, dim3 blocks, dim3 threads, size_t num_bytes_shared_mem,
-                   hipStream_t stream, Args... args) {
+template <typename... Args>
+void launch_kernel(const char *kernel_name, const char *file, int32_t line,
+                   void (*kernel)(Args...), dim3 blocks, dim3 threads,
+                   size_t num_bytes_shared_mem, hipStream_t stream,
+                   const char *function_name, Args... args) {
 #if !NDEBUG
     int32_t device = 0;
     HIP_ERRCHK(hipGetDevice(&device));
@@ -113,7 +136,7 @@ void launch_kernel(const char *kernel_name, const char *function_name,
     [[maybe_unused]] auto result = hipGetLastError();
 #endif
 
-    kernel<<<blocks, threads, num_bytes_shared_mem, stream>>>(f, args...);
+    kernel<<<blocks, threads, num_bytes_shared_mem, stream>>>(args...);
 
 #if !NDEBUG
     // Quoting from HIP documentation
@@ -137,7 +160,7 @@ void launch_kernel(const char *kernel_name, const char *function_name,
     // be overwritten.
 
 #if defined(__NVCC__) || (defined(__clang__) && defined(__CUDA__))
-    [[maybe_unused]] result = hipDeviceSynchronize();
+    result = hipDeviceSynchronize();
 #endif
     result = hipGetLastError();
     if (result != hipSuccess) {
@@ -150,237 +173,243 @@ void launch_kernel(const char *kernel_name, const char *function_name,
 #endif
 }
 
-inline void *allocate(size_t num_bytes) {
-    void *ptr = nullptr;
-    HIP_ERRCHK(hipMalloc(&ptr, num_bytes));
-    if (ptr == nullptr) {
-        std::fprintf(stderr, "GPU malloc allocated a nullptr\n");
-        std::abort();
-    }
-
-    return ptr;
-}
-inline void free(void *ptr) { HIP_ERRCHK(hipFree(ptr)); }
-
-inline void memcpy(void *dst, const void *src, size_t num_bytes) {
-    HIP_ERRCHK(hipMemcpy(dst, src, num_bytes, hipMemcpyDefault));
-}
-
-inline void synchronize() { HIP_ERRCHK(hipDeviceSynchronize()); }
+void *allocate(size_t num_bytes);
+void free(void *ptr);
+void memcpy(void *dst, const void *src, size_t num_bytes);
+void synchronize();
 } // namespace gpu
 
 // Here we have the device functions that are executed on the GPU
 namespace lbm {
-template <typename T>
-__device__ void compute_edf(int index, int num_values, T *f, T *rho, T *u,
-                            int *nodetype, T *ex, T *ey, T *w, T es) {
-    const T s = static_cast<T>(nodetype[index] <= 0);
+template <typename... Args>
+void compute_edf(dim3 *blocks, dim3 *threads, Args... args) {
+    LAUNCH_KERNEL(
+        gpu::loop_kernel, *blocks, *threads, 0, 0, "compute_edf",
+        [] __device__(int index, int num_values, auto *f, auto *rho, auto *u,
+                      int *nodetype, auto *ex, auto *ey, auto *w, auto es) {
+            using ft =
+                std::remove_cv_t<std::remove_reference_t<decltype(f[0])>>;
 
-    static constexpr auto N = 9;
-    for (auto i = 0; i < N; i++) {
-        const T u0 = u[index];
-        const T u1 = u[index + num_values];
-        const T exi = ex[i];
-        const T eyi = ey[i];
+            const auto s = static_cast<ft>(nodetype[index] <= 0);
 
-        const T ux2 = u0 * u0;
-        const T uy2 = u1 * u1;
-        const T u2 = ux2 + uy2;
-        const T euxy = exi * eyi * u0 * u1;
-        const T euxx = exi * exi * ux2;
-        const T euyy = eyi * eyi * uy2;
-        const T eu2 = 2.0 * euxy + euxx + euyy;
+            static constexpr auto N = 9;
+            for (auto i = 0; i < N; i++) {
+                const auto u0 = u[index];
+                const auto u1 = u[index + num_values];
+                const auto exi = ex[i];
+                const auto eyi = ey[i];
 
-        const T inv_es_sq = 1.0 / (es * es);
-        const T term_order1 = inv_es_sq * (exi * u0 + eyi * u1);
-        const T term_order2 = 0.5 * inv_es_sq * (inv_es_sq * eu2 - u2);
+                const auto ux2 = u0 * u0;
+                const auto uy2 = u1 * u1;
+                const auto u2 = ux2 + uy2;
+                const auto euxy = exi * eyi * u0 * u1;
+                const auto euxx = exi * exi * ux2;
+                const auto euyy = eyi * eyi * uy2;
+                const auto eu2 = static_cast<ft>(2.0f) * euxy + euxx + euyy;
 
-        const T f_old = f[index + i * num_values];
-        const T f_new = w[i] * rho[index] * (1.0 + term_order1 + term_order2);
+                const auto inv_es_sq = static_cast<ft>(1.0f) / (es * es);
+                const auto term_order1 = inv_es_sq * (exi * u0 + eyi * u1);
+                const auto term_order2 =
+                    static_cast<ft>(0.5f) * inv_es_sq * (inv_es_sq * eu2 - u2);
 
-        f[index + i * num_values] = s * f_new + (1.0 - s) * f_old;
-    }
+                const auto f_old = f[index + i * num_values];
+                const auto f_new =
+                    w[i] * rho[index] *
+                    (static_cast<ft>(1.0f) + term_order1 + term_order2);
+
+                f[index + i * num_values] =
+                    s * f_new + (static_cast<ft>(1.0f) - s) * f_old;
+            }
+        },
+        args...);
 }
 
-template <typename T>
-__device__ void collide(int index, int num_values, T *f, T *rho, T *u,
-                        int *nodetype, T *tau, T *Fg) {
-    const T s = static_cast<T>(nodetype[index] <= 0);
+template <typename... Args>
+void collide(dim3 *blocks, dim3 *threads, Args... args) {
+    LAUNCH_KERNEL(
+        gpu::loop_kernel, *blocks, *threads, 0, 0, "collide",
+        [] __device__(int index, int num_values, auto *f, auto *rho, auto *u,
+                      int *nodetype, auto *tau, auto *Fg) {
+            using ft =
+                std::remove_cv_t<std::remove_reference_t<decltype(f[0])>>;
 
-    const T rho_i = rho[index];
-    const T tau_i = tau[index];
-    const T tau_per_rho =
-        std::min(tau_i / rho_i, std::numeric_limits<T>::max());
+            const auto s = static_cast<ft>(nodetype[index] <= 0);
 
-    const int i = index + 0 * num_values;
-    const int j = index + 1 * num_values;
+            const auto rho_i = rho[index];
+            const auto tau_i = tau[index];
+            const auto tau_per_rho =
+                std::min(tau_i / rho_i, std::numeric_limits<ft>::max());
 
-    const T u0 = u[i] + s * Fg[i] * tau_per_rho;
-    const T u1 = u[j] + s * Fg[j] * tau_per_rho;
-    u[i] = u0;
-    u[j] = u1;
+            const int i = index + 0 * num_values;
+            const int j = index + 1 * num_values;
 
-    const T u0_sq = u0 * u0;
-    const T u1_sq = u1 * u1;
-    const T u0_sq_p_u1_sq = 0.5f * (u0_sq + u1_sq);
-    const T u0_p_u1 = u0 + u1;
-    const T u0_m_u1 = u0 - u1;
-    const T u0_p_u1_sq = 1.5f * u0_p_u1 * u0_p_u1;
-    const T u0_m_u1_sq = 1.5f * u0_m_u1 * u0_m_u1;
+            const auto u0 = u[i] + s * Fg[i] * tau_per_rho;
+            const auto u1 = u[j] + s * Fg[j] * tau_per_rho;
+            u[i] = u0;
+            u[j] = u1;
 
-    T f_updated[9] = {
-        -u0_sq - u1_sq + 0.33333333f,
-        -0.5f * u1_sq + u0_sq + u0,
-        -0.5f * u0_sq + u1_sq + u1,
-        -u0_sq_p_u1_sq + u0_p_u1 + u0_p_u1_sq,
-        -u0_sq_p_u1_sq + u0_m_u1 + u0_m_u1_sq,
-        -0.5f * u1_sq + u0_sq - u0,
-        -0.5f * u0_sq + u1_sq - u1,
-        -u0_sq_p_u1_sq - u0_p_u1 + u0_p_u1_sq,
-        -u0_sq_p_u1_sq - u0_m_u1 + u0_m_u1_sq,
-    };
+            const auto u0_sq = u0 * u0;
+            const auto u1_sq = u1 * u1;
+            const auto u0_sq_p_u1_sq = static_cast<ft>(0.5f) * (u0_sq + u1_sq);
+            const auto u0_p_u1 = u0 + u1;
+            const auto u0_m_u1 = u0 - u1;
+            const auto u0_p_u1_sq = static_cast<ft>(1.5f) * u0_p_u1 * u0_p_u1;
+            const auto u0_m_u1_sq = static_cast<ft>(1.5f) * u0_m_u1 * u0_m_u1;
 
-    const T rho_per_three = 0.333333f * rho_i;
-    const T inv_tau = std::min(1.0f / tau_i, std::numeric_limits<T>::max());
-    const T tau_m_1 = tau_i - 1.0f;
+            ft f_updated[9] = {
+                -u0_sq - u1_sq + static_cast<ft>(0.33333333f),
+                -static_cast<ft>(0.5f) * u1_sq + u0_sq + u0,
+                -static_cast<ft>(0.5f) * u0_sq + u1_sq + u1,
+                -u0_sq_p_u1_sq + u0_p_u1 + u0_p_u1_sq,
+                -u0_sq_p_u1_sq + u0_m_u1 + u0_m_u1_sq,
+                -static_cast<ft>(0.5f) * u1_sq + u0_sq - u0,
+                -static_cast<ft>(0.5f) * u0_sq + u1_sq - u1,
+                -u0_sq_p_u1_sq - u0_p_u1 + u0_p_u1_sq,
+                -u0_sq_p_u1_sq - u0_m_u1 + u0_m_u1_sq,
+            };
 
-    static constexpr size_t N = 9;
-    static constexpr T multipliers[N] = {
-        2.00f, 1.00f, 1.00f, 0.25f, 0.25f, 1.00f, 1.00f, 0.25f, 0.25f,
-    };
-    for (size_t i = 0; i < N; i++) {
-        const T f_eq =
-            multipliers[i] * rho_per_three * (f_updated[i] + 0.333333333f);
-        const T f_old = f[index + i * num_values];
-        const T f_new = inv_tau * (tau_m_1 * f_old + f_eq);
+            const auto rho_per_three = static_cast<ft>(0.333333f) * rho_i;
+            const auto inv_tau = std::min(static_cast<ft>(1.0f) / tau_i,
+                                          std::numeric_limits<ft>::max());
+            const auto tau_m_1 = tau_i - static_cast<ft>(1.0f);
 
-        f_updated[i] = s * f_new + (1.0f - s) * f_old;
-    }
+            static constexpr size_t N = 9;
+            // clang-format off
+            static constexpr ft multipliers[N] = {
+                static_cast<ft>(2.00f),
+                static_cast<ft>(1.00f),
+                static_cast<ft>(1.00f),
+                static_cast<ft>(0.25f),
+                static_cast<ft>(0.25f),
+                static_cast<ft>(1.00f),
+                static_cast<ft>(1.00f),
+                static_cast<ft>(0.25f),
+                static_cast<ft>(0.25f),
+            };
+            // clang-format on
+            for (size_t i = 0; i < N; i++) {
+                const auto f_eq =
+                    multipliers[i] * rho_per_three *
+                    (f_updated[i] + static_cast<ft>(0.333333333f));
+                const auto f_old = f[index + i * num_values];
+                const auto f_new = inv_tau * (tau_m_1 * f_old + f_eq);
 
-    // clang-format off
-    // Update 1-8, such that pairs are swapped:
-    // 0 <--> 0
-    // 1 <--> 5
-    // 2 <--> 6
-    // 3 <--> 7
-    // 4 <--> 8
-    f[index + 0 * num_values] = s * f_updated[0] + (1.0f - s) * f_updated[0];
-    f[index + 1 * num_values] = s * f_updated[5] + (1.0f - s) * f_updated[1];
-    f[index + 2 * num_values] = s * f_updated[6] + (1.0f - s) * f_updated[2];
-    f[index + 3 * num_values] = s * f_updated[7] + (1.0f - s) * f_updated[3];
-    f[index + 4 * num_values] = s * f_updated[8] + (1.0f - s) * f_updated[4];
-    f[index + 5 * num_values] = s * f_updated[1] + (1.0f - s) * f_updated[5];
-    f[index + 6 * num_values] = s * f_updated[2] + (1.0f - s) * f_updated[6];
-    f[index + 7 * num_values] = s * f_updated[3] + (1.0f - s) * f_updated[7];
-    f[index + 8 * num_values] = s * f_updated[4] + (1.0f - s) * f_updated[8];
-    // clang-format on
+                f_updated[i] = s * f_new + (static_cast<ft>(1.0f) - s) * f_old;
+            }
+
+            // clang-format off
+            // Update 1-8, such that pairs are swapped:
+            // 0 <--> 0
+            // 1 <--> 5
+            // 2 <--> 6
+            // 3 <--> 7
+            // 4 <--> 8
+            f[index + 0 * num_values] = s * f_updated[0] + (static_cast<ft>(1.0f) - s) * f_updated[0];
+            f[index + 1 * num_values] = s * f_updated[5] + (static_cast<ft>(1.0f) - s) * f_updated[1];
+            f[index + 2 * num_values] = s * f_updated[6] + (static_cast<ft>(1.0f) - s) * f_updated[2];
+            f[index + 3 * num_values] = s * f_updated[7] + (static_cast<ft>(1.0f) - s) * f_updated[3];
+            f[index + 4 * num_values] = s * f_updated[8] + (static_cast<ft>(1.0f) - s) * f_updated[4];
+            f[index + 5 * num_values] = s * f_updated[1] + (static_cast<ft>(1.0f) - s) * f_updated[5];
+            f[index + 6 * num_values] = s * f_updated[2] + (static_cast<ft>(1.0f) - s) * f_updated[6];
+            f[index + 7 * num_values] = s * f_updated[3] + (static_cast<ft>(1.0f) - s) * f_updated[7];
+            f[index + 8 * num_values] = s * f_updated[4] + (static_cast<ft>(1.0f) - s) * f_updated[8];
+            // clang-format on
+        },
+        args...);
 }
 
-template <typename T>
-__device__ void stream_and_bounce(int index, int num_values, int nx, int ny,
-                                  T *f, int *nodetype, T *ex, T *ey) {
-    const T s1 = static_cast<T>(nodetype[index] <= 0);
-    // i over ny, j over nx
-    const auto i = index / nx;
-    const auto j = index % nx;
+template <typename... Args>
+void stream_and_bounce(dim3 *blocks, dim3 *threads, Args... args) {
+    LAUNCH_KERNEL(
+        gpu::loop_kernel, *blocks, *threads, 0, 0, "stream_and_bounce",
+        [] __device__(int index, int num_values, int nx, int ny, auto *f,
+                      int *nodetype, auto *ex, auto *ey) {
+            using ft =
+                std::remove_cv_t<std::remove_reference_t<decltype(f[0])>>;
 
-    for (auto k = 1; k < 5; k++) {
-        const auto next_i = (ny + i - static_cast<int>(ey[k])) % ny;
-        const auto next_j = (nx + j + static_cast<int>(ex[k])) % nx;
-        const auto index2 = next_i * nx + next_j;
-        const T s2 = static_cast<T>(nodetype[index2] <= 0);
+            const auto s1 = static_cast<ft>(nodetype[index] <= 0);
+            // i over ny, j over nx
+            const auto i = index / nx;
+            const auto j = index % nx;
 
-        const auto linear_index1 = index + (k + 4) * num_values;
-        const auto linear_index2 = index2 + k * num_values;
-        const auto f1 = f[linear_index1];
-        const auto f2 = f[linear_index2];
+            for (auto k = 1; k < 5; k++) {
+                const auto next_i = (ny + i - static_cast<int>(ey[k])) % ny;
+                const auto next_j = (nx + j + static_cast<int>(ex[k])) % nx;
+                const auto index2 = next_i * nx + next_j;
+                const auto s2 = static_cast<ft>(nodetype[index2] <= 0);
 
-        // s == 0 or s == 1
-        const T s = s1 * s2;
-        f[linear_index1] = s * f2 + (1.0f - s) * f1;
-        f[linear_index2] = s * f1 + (1.0f - s) * f2;
-    }
+                const auto linear_index1 = index + (k + 4) * num_values;
+                const auto linear_index2 = index2 + k * num_values;
+                const auto f1 = f[linear_index1];
+                const auto f2 = f[linear_index2];
+
+                // s == 0 or s == 1
+                const auto s = s1 * s2;
+                f[linear_index1] = s * f2 + (static_cast<ft>(1.0f) - s) * f1;
+                f[linear_index2] = s * f1 + (static_cast<ft>(1.0f) - s) * f2;
+            }
+        },
+        args...);
 }
 
-template <typename T>
-__device__ void compute_macro_vars(int index, int num_values, T *f, T *rho,
-                                   T *u, int *nodetype, T *ex, T *ey) {
-    T rho_i = 0.0;
-    T f_dot_ex = 0.0;
-    T f_dot_ey = 0.0;
-    for (int i = 0; i < 9; i++) {
-        const T fi = f[index + i * num_values];
-        rho_i += fi;
-        f_dot_ex += ex[i] * fi;
-        f_dot_ey += ey[i] * fi;
-    }
+template <typename... Args>
+void compute_macro_vars(dim3 *blocks, dim3 *threads, Args... args) {
+    LAUNCH_KERNEL(
+        gpu::loop_kernel, *blocks, *threads, 0, 0, "compute_macro_vars",
+        [] __device__(int index, int num_values, auto *f, auto *rho, auto *u,
+                      int *nodetype, auto *ex, auto *ey) {
+            using ft =
+                std::remove_cv_t<std::remove_reference_t<decltype(f[0])>>;
 
-    const T s = static_cast<T>(nodetype[index] <= 0);
-    const T inv_rho = std::min(1.0f / rho_i, std::numeric_limits<T>::max());
+            auto rho_i = static_cast<ft>(0.0f);
+            auto f_dot_ex = static_cast<ft>(0.0f);
+            auto f_dot_ey = static_cast<ft>(0.0f);
+            for (int i = 0; i < 9; i++) {
+                const auto fi = f[index + i * num_values];
+                rho_i += fi;
+                f_dot_ex += ex[i] * fi;
+                f_dot_ey += ey[i] * fi;
+            }
 
-    rho[index] = s * rho_i;
-    u[index + 0 * num_values] = s * f_dot_ex * inv_rho;
-    u[index + 1 * num_values] = s * f_dot_ey * inv_rho;
+            const auto s = static_cast<ft>(nodetype[index] <= 0);
+            const auto inv_rho = std::min(static_cast<ft>(1.0f) / rho_i,
+                                          std::numeric_limits<ft>::max());
+
+            rho[index] = s * rho_i;
+            u[index + 0 * num_values] = s * f_dot_ex * inv_rho;
+            u[index + 1 * num_values] = s * f_dot_ey * inv_rho;
+        },
+        args...);
 }
 } // namespace lbm
 
 // This is the python API
 extern "C" {
-inline void LBM_compute_edf_f32(dim3 *blocks, dim3 *threads, int nx, int ny,
+void LBM_compute_edf_f32(dim3 *blocks, dim3 *threads, int nx, int ny, float *f,
+                         float *rho, float *u, int *nodetype, float *ex,
+                         float *ey, float *w, float es);
+void LBM_compute_edf_f64(dim3 *blocks, dim3 *threads, int nx, int ny, double *f,
+                         double *rho, double *u, int *nodetype, double *ex,
+                         double *ey, double *w, double es);
+void LBM_collide_f32(dim3 *blocks, dim3 *threads, int nx, int ny, float *f,
+                     float *rho, float *u, int *nodetype, float *tau,
+                     float *Fg);
+void LBM_collide_f64(dim3 *blocks, dim3 *threads, int nx, int ny, double *f,
+                     double *rho, double *u, int *nodetype, double *tau,
+                     double *Fg);
+void LBM_stream_and_bounce_f32(dim3 *blocks, dim3 *threads, int nx, int ny,
+                               float *f, int *nodetype, float *ex, float *ey);
+void LBM_stream_and_bounce_f64(dim3 *blocks, dim3 *threads, int nx, int ny,
+                               double *f, int *nodetype, double *ex,
+                               double *ey);
+void LBM_compute_macro_vars_f32(dim3 *blocks, dim3 *threads, int nx, int ny,
                                 float *f, float *rho, float *u, int *nodetype,
-                                float *ex, float *ey, float *w, float es) {
-    LAUNCH_KERNEL(gpu::loop_kernel, lbm::compute_edf<float>, *blocks, *threads,
-                  0, 0, nx, ny, f, rho, u, nodetype, ex, ey, w, es);
-}
-inline void LBM_compute_edf_f64(dim3 *blocks, dim3 *threads, int nx, int ny,
+                                float *ex, float *ey);
+void LBM_compute_macro_vars_f64(dim3 *blocks, dim3 *threads, int nx, int ny,
                                 double *f, double *rho, double *u,
-                                int *nodetype, double *ex, double *ey,
-                                double *w, double es) {
-    LAUNCH_KERNEL(gpu::loop_kernel, lbm::compute_edf<double>, *blocks, *threads,
-                  0, 0, nx, ny, f, rho, u, nodetype, ex, ey, w, es);
-}
-inline void LBM_collide_f32(dim3 *blocks, dim3 *threads, int nx, int ny,
-                            float *f, float *rho, float *u, int *nodetype,
-                            float *tau, float *Fg) {
-    LAUNCH_KERNEL(gpu::loop_kernel, lbm::collide<float>, *blocks, *threads, 0,
-                  0, nx, ny, f, rho, u, nodetype, tau, Fg);
-}
-inline void LBM_collide_f64(dim3 *blocks, dim3 *threads, int nx, int ny,
-                            double *f, double *rho, double *u, int *nodetype,
-                            double *tau, double *Fg) {
-    LAUNCH_KERNEL(gpu::loop_kernel, lbm::collide<double>, *blocks, *threads, 0,
-                  0, nx, ny, f, rho, u, nodetype, tau, Fg);
-}
-inline void LBM_stream_and_bounce_f32(dim3 *blocks, dim3 *threads, int nx,
-                                      int ny, float *f, int *nodetype,
-                                      float *ex, float *ey) {
-    LAUNCH_KERNEL(gpu::loop_kernel, lbm::stream_and_bounce<float>, *blocks,
-                  *threads, 0, 0, nx, ny, nx, ny, f, nodetype, ex, ey);
-}
-inline void LBM_stream_and_bounce_f64(dim3 *blocks, dim3 *threads, int nx,
-                                      int ny, double *f, int *nodetype,
-                                      double *ex, double *ey) {
-    LAUNCH_KERNEL(gpu::loop_kernel, lbm::stream_and_bounce<double>, *blocks,
-                  *threads, 0, 0, nx, ny, nx, ny, f, nodetype, ex, ey);
-}
-inline void LBM_compute_macro_vars_f32(dim3 *blocks, dim3 *threads, int nx,
-                                       int ny, float *f, float *rho, float *u,
-                                       int *nodetype, float *ex, float *ey) {
-    LAUNCH_KERNEL(gpu::loop_kernel, lbm::compute_macro_vars<float>, *blocks,
-                  *threads, 0, 0, nx, ny, f, rho, u, nodetype, ex, ey);
-}
-inline void LBM_compute_macro_vars_f64(dim3 *blocks, dim3 *threads, int nx,
-                                       int ny, double *f, double *rho,
-                                       double *u, int *nodetype, double *ex,
-                                       double *ey) {
-    LAUNCH_KERNEL(gpu::loop_kernel, lbm::compute_macro_vars<double>, *blocks,
-                  *threads, 0, 0, nx, ny, f, rho, u, nodetype, ex, ey);
-}
-
-inline void *LBM_malloc(size_t bytes) { return gpu::allocate(bytes); }
-inline void LBM_memcpy(void *dst, void *src, size_t bytes) {
-    return gpu::memcpy(dst, src, bytes);
-}
-inline void LBM_free(void *ptr) { return gpu::free(ptr); }
-inline void LBM_synchronize() { return gpu::synchronize(); }
+                                int *nodetype, double *ex, double *ey);
+void *LBM_malloc(size_t bytes);
+void LBM_memcpy(void *dst, void *src, size_t bytes);
+void LBM_free(void *ptr);
+void LBM_synchronize();
 }

@@ -48,7 +48,7 @@ class HostData:
         self.Fg = np.zeros(shape_2, dtype=inputs.dtype)
         self.Fg[0, :, :] = inputs.Fg
 
-        self.nodetype = np.zeros(shape_1, dtype=inputs.dtype)
+        self.nodetype = np.zeros(shape_1, dtype=np.int32)
         self.nodetype[0, :] = 1
         self.nodetype[-1, :] = 1
 

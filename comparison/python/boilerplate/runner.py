@@ -64,17 +64,8 @@ class HostData:
             "_" + inputs.output_filename + "_" + np.dtype(inputs.dtype).name + ".png"
         )
 
-        plt.imsave(prefix + "u0" + postfix, self.u[0])
-        plt.imsave(prefix + "u1" + postfix, self.u[1])
-        plt.imsave(prefix + "f0" + postfix, self.f[0])
-        plt.imsave(prefix + "f1" + postfix, self.f[1])
-        plt.imsave(prefix + "f2" + postfix, self.f[2])
-        plt.imsave(prefix + "f3" + postfix, self.f[3])
-        plt.imsave(prefix + "f4" + postfix, self.f[4])
-        plt.imsave(prefix + "f5" + postfix, self.f[5])
-        plt.imsave(prefix + "f6" + postfix, self.f[6])
-        plt.imsave(prefix + "f7" + postfix, self.f[7])
-        plt.imsave(prefix + "f8" + postfix, self.f[8])
+        # plt.imsave(prefix + "u0" + postfix, self.u[0])
+        # plt.imsave(prefix + "u1" + postfix, self.u[1])
 
         plt.figure()
         x = int(self.u.shape[1] / 2)

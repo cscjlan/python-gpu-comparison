@@ -24,7 +24,7 @@ class Inputs:
 
         self.dll = j["dll"]
         self.datadir = j["datadir"]
-        self.dtype = np.float32 if j["dtype"] == "f32" else np.float64
+        self.dtype = np.float32 if j["dtype"] == "float32" else np.float64
         self.niters = j["niters"]
         self.ex = j["ex"]
         self.ey = j["ey"]
@@ -59,23 +59,28 @@ class HostData:
         self.es = inputs.dtype(inputs.es)
 
     def output(self, inputs):
-        plt.imsave(inputs.datadir + "/u0_" + inputs.output_filename + ".png", self.u[0])
-        plt.imsave(inputs.datadir + "/u1_" + inputs.output_filename + ".png", self.u[1])
-        plt.imsave(inputs.datadir + "/f0_" + inputs.output_filename + ".png", self.f[0])
-        plt.imsave(inputs.datadir + "/f1_" + inputs.output_filename + ".png", self.f[1])
-        plt.imsave(inputs.datadir + "/f2_" + inputs.output_filename + ".png", self.f[2])
-        plt.imsave(inputs.datadir + "/f3_" + inputs.output_filename + ".png", self.f[3])
-        plt.imsave(inputs.datadir + "/f4_" + inputs.output_filename + ".png", self.f[4])
-        plt.imsave(inputs.datadir + "/f5_" + inputs.output_filename + ".png", self.f[5])
-        plt.imsave(inputs.datadir + "/f6_" + inputs.output_filename + ".png", self.f[6])
-        plt.imsave(inputs.datadir + "/f7_" + inputs.output_filename + ".png", self.f[7])
-        plt.imsave(inputs.datadir + "/f8_" + inputs.output_filename + ".png", self.f[8])
+        prefix = inputs.datadir + "/"
+        postfix = (
+            "_" + inputs.output_filename + "_" + np.dtype(inputs.dtype).name + ".png"
+        )
+
+        plt.imsave(prefix + "u0" + postfix, self.u[0])
+        plt.imsave(prefix + "u1" + postfix, self.u[1])
+        plt.imsave(prefix + "f0" + postfix, self.f[0])
+        plt.imsave(prefix + "f1" + postfix, self.f[1])
+        plt.imsave(prefix + "f2" + postfix, self.f[2])
+        plt.imsave(prefix + "f3" + postfix, self.f[3])
+        plt.imsave(prefix + "f4" + postfix, self.f[4])
+        plt.imsave(prefix + "f5" + postfix, self.f[5])
+        plt.imsave(prefix + "f6" + postfix, self.f[6])
+        plt.imsave(prefix + "f7" + postfix, self.f[7])
+        plt.imsave(prefix + "f8" + postfix, self.f[8])
 
         plt.figure()
         x = int(self.u.shape[1] / 2)
         plt.plot(self.u[0][:, x])
         plt.plot(self.u[1][:, x])
-        plt.savefig(inputs.datadir + "/profile_u_" + inputs.output_filename + ".png")
+        plt.savefig(prefix + "profile_u" + postfix)
 
         plt.figure()
         x = int(self.f.shape[1] / 2)
@@ -88,7 +93,7 @@ class HostData:
         plt.plot(self.f[6][:, x])
         plt.plot(self.f[7][:, x])
         plt.plot(self.f[8][:, x])
-        plt.savefig(inputs.datadir + "/profile_f_" + inputs.output_filename + ".png")
+        plt.savefig(prefix + "profile_f" + postfix)
 
 
 def run(lbm_impl):

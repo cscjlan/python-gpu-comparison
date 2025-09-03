@@ -1,13 +1,9 @@
-import sys
-import numpy as np
 from numba import cuda
-import matplotlib.pyplot as plt
-import time
-import json
+from boilerplate.runner import run
 
 
 @cuda.jit
-def compute_macro_vars_gpu(f, nodetype, rho, u):
+def compute_macro_vars(f, nodetype, rho, u):
     j, i = cuda.grid(2)
     ny, nx = nodetype.shape
     if i < ny and j < nx and nodetype[i, j] <= 0:
@@ -39,7 +35,7 @@ def compute_macro_vars_gpu(f, nodetype, rho, u):
 
 
 @cuda.jit
-def compute_edf_gpu(rho, u, nodetype, feq, ex, ey, w, es):
+def compute_edf(rho, u, nodetype, feq, ex, ey, w, es):
     j, i = cuda.grid(2)
     ny, nx = nodetype.shape
     if i < ny and j < nx and nodetype[i, j] <= 0:
@@ -58,7 +54,7 @@ def compute_edf_gpu(rho, u, nodetype, feq, ex, ey, w, es):
 
 
 @cuda.jit
-def collide_gpu(f, rho, u, nodetype, tau, Fg):
+def collide(f, rho, u, nodetype, tau, Fg):
     j, i = cuda.grid(2)
     ny, nx = nodetype.shape
     if i < ny and j < nx and nodetype[i, j] <= 0:
@@ -145,7 +141,7 @@ def collide_gpu(f, rho, u, nodetype, tau, Fg):
 
 
 @cuda.jit
-def stream_and_bounce_gpu(f, nodetype, ex, ey):
+def stream_and_bounce(f, nodetype, ex, ey):
     j, i = cuda.grid(2)
     ny, nx = nodetype.shape
 
@@ -163,90 +159,77 @@ def stream_and_bounce_gpu(f, nodetype, ex, ey):
                 f[q + 4, i, j] = fswap
 
 
-def test_lb():
-    if len(sys.argv) < 4:
-        print("Give nx, ny and plot filename as arguments", file=sys.stderr)
-        exit(1)
+class NumbaOriginalLBM:
+    def initialize(self, host_data, inputs):
+        self.threads_per_block = (16, 16)
+        self.blocks_per_grid_x = (
+            inputs.nx + self.threads_per_block[0] - 1
+        ) // self.threads_per_block[0]
+        self.blocks_per_grid_y = (
+            inputs.ny + self.threads_per_block[1] - 1
+        ) // self.threads_per_block[1]
+        self.blocks_per_grid = (self.blocks_per_grid_x, self.blocks_per_grid_y)
 
-    nx = int(sys.argv[1])
-    ny = int(sys.argv[2])
+        self.f = cuda.to_device(host_data.f)
+        self.u = cuda.to_device(host_data.u)
+        self.rho = cuda.to_device(host_data.rho)
+        self.tau = cuda.to_device(host_data.tau)
+        self.Fg = cuda.to_device(host_data.Fg)
+        self.nodetype = cuda.to_device(host_data.nodetype)
+        self.ex = cuda.to_device(host_data.ex)
+        self.ey = cuda.to_device(host_data.ey)
+        self.w = cuda.to_device(host_data.w)
+        self.es = host_data.es
 
-    with open("input.json", "r") as f:
-        j = json.load(f)
-    niters = j["niters"]
-
-    dtype = np.float32
-
-    rho = np.ones((ny, nx), dtype=dtype) * j["rho"]
-    tau = np.ones((ny, nx), dtype=dtype) * j["tau"]
-    u = np.zeros((2, ny, nx), dtype=dtype)
-    Fg = np.zeros((2, ny, nx), dtype=dtype)
-    Fg[0, :, :] = j["Fg"]
-    nodetype = np.zeros((ny, nx), dtype=dtype)
-    nodetype[0, :] = 1
-    nodetype[-1, :] = 1
-    f = np.zeros((9, ny, nx), dtype=dtype)
-    ex_host = j["ex"]
-    ey_host = j["ey"]
-    es_host = j["es"]
-    w_host = j["w"]
-
-    # GPU Memory Allocation
-    f_d = cuda.to_device(f)
-    rho_d = cuda.to_device(rho)
-    u_d = cuda.to_device(u)
-    tau_d = cuda.to_device(tau)
-    Fg_d = cuda.to_device(Fg)
-    nodetype_d = cuda.to_device(nodetype)
-    ex = cuda.to_device(ex_host)
-    ey = cuda.to_device(ey_host)
-    es = cuda.to_device(es_host)
-    w = cuda.to_device(w_host)
-
-    threads_per_block = (16, 16)
-    blocks_per_grid_x = (nx + threads_per_block[0] - 1) // threads_per_block[0]
-    blocks_per_grid_y = (ny + threads_per_block[1] - 1) // threads_per_block[1]
-    blocks_per_grid = (blocks_per_grid_x, blocks_per_grid_y)
-
-    # Run one iteration first to JIT compile & "clear the pipes"
-    compute_edf_gpu[blocks_per_grid, threads_per_block](
-        rho_d, u_d, nodetype_d, f_d, ex, ey, w, es
-    )
-    collide_gpu[blocks_per_grid, threads_per_block](
-        f_d, rho_d, u_d, nodetype_d, tau_d, Fg_d
-    )
-
-    stream_and_bounce_gpu[blocks_per_grid, threads_per_block](f_d, nodetype_d, ex, ey)
-    compute_macro_vars_gpu[blocks_per_grid, threads_per_block](
-        f_d, nodetype_d, rho_d, u_d
-    )
-
-    # Sync before starting timing
-    cuda.synchronize()
-    t0 = time.time()
-    for _ in range(niters - 1):
-        collide_gpu[blocks_per_grid, threads_per_block](
-            f_d, rho_d, u_d, nodetype_d, tau_d, Fg_d
+        compute_edf[self.blocks_per_grid, self.threads_per_block](
+            self.rho,
+            self.u,
+            self.nodetype,
+            self.f,
+            self.ex,
+            self.ey,
+            self.w,
+            self.es,
         )
-        stream_and_bounce_gpu[blocks_per_grid, threads_per_block](
-            f_d, nodetype_d, ex, ey
+
+    def iterate(self):
+        collide[self.blocks_per_grid, self.threads_per_block](
+            self.f,
+            self.rho,
+            self.u,
+            self.nodetype,
+            self.tau,
+            self.Fg,
         )
-        compute_macro_vars_gpu[blocks_per_grid, threads_per_block](
-            f_d, nodetype_d, rho_d, u_d
+        stream_and_bounce[self.blocks_per_grid, self.threads_per_block](
+            self.f, self.nodetype, self.ex, self.ey
         )
-    cuda.synchronize()
-    t1 = time.time()
+        compute_macro_vars[self.blocks_per_grid, self.threads_per_block](
+            self.f,
+            self.nodetype,
+            self.rho,
+            self.u,
+        )
 
-    f = f_d.copy_to_host()
-    u = u_d.copy_to_host()
+    def copy_to_host(self, host_data):
+        host_data.f = self.f.copy_to_host()
+        host_data.u = self.u.copy_to_host()
+        host_data.rho = self.rho.copy_to_host()
+        host_data.tau = self.tau.copy_to_host()
+        host_data.Fg = self.Fg.copy_to_host()
+        host_data.nodetype = self.nodetype.copy_to_host()
+        host_data.ex = self.ex.copy_to_host()
+        host_data.ey = self.ey.copy_to_host()
+        host_data.w = self.w.copy_to_host()
 
-    mlups = (ny * nx * niters * 1e-6) / (t1 - t0)
-    print("MLUPS:", mlups)
-    print("Time taken", t1 - t0)
+        return host_data
 
-    plt.imsave("u0" + sys.argv[3] + ".png", u[0])
-    plt.imsave("u1" + sys.argv[3] + ".png", u[1])
+    def synchronize(self):
+        cuda.synchronize()
+
+    def finish(self):
+        pass
 
 
 if __name__ == "__main__":
-    test_lb()
+    run(NumbaOriginalLBM())

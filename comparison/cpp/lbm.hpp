@@ -254,7 +254,7 @@ void collide(dim3 *blocks, dim3 *threads, Args... args) {
 
             static constexpr size_t N = 9;
             // clang-format off
-            ft feq[N] = {
+            const ft feq[N] = {
                 -ux2 - uy2 + 0.333333f,
                 ux2_p_ux - 0.5f * uy2,
                 uy2_p_uy - 0.5f * ux2,
@@ -279,31 +279,25 @@ void collide(dim3 *blocks, dim3 *threads, Args... args) {
             };
             // clang-format on
 
-            const auto fi = f[i];
-            f[i] =
-                s * ((1.0f - inv_tau) * fi + third_rho_per_tau * multiplier[0] *
-                                                 (feq[0] + 0.33333333f)) +
-                (1.0f - s) * fi;
+            auto f_new = [&s, &inv_tau, &third_rho_per_tau, &feq](auto f_old,
+                                                                  auto idx) {
+                return (1.0f - inv_tau) * f_old + third_rho_per_tau *
+                                                      multiplier[idx] *
+                                                      (feq[idx] + 0.33333333f);
+            };
 
+            const auto fi = f[i];
+            f[i] = s * f_new(fi, 0) + (1.0f - s) * fi;
+
+            // Update and swap in one loop
             for (size_t q = 1; q < 5; q++) {
                 const size_t l = q + 4;
-
                 const size_t iq = index_from_page(q);
                 const size_t il = index_from_page(l);
-
                 const auto f_old_q = f[iq];
                 const auto f_old_l = f[il];
-
-                const auto f_new_l =
-                    (1.0f - inv_tau) * f_old_l +
-                    third_rho_per_tau * multiplier[l] * (feq[l] + 0.3333333f);
-
-                const auto f_new_q =
-                    (1.0f - inv_tau) * f_old_q +
-                    third_rho_per_tau * multiplier[q] * (feq[q] + 0.3333333f);
-
-                f[iq] = s * f_new_l + (1.0f - s) * f_old_q;
-                f[il] = s * f_new_q + (1.0f - s) * f_old_l;
+                f[iq] = s * f_new(f_old_l, l) + (1.0f - s) * f_old_q;
+                f[il] = s * f_new(f_old_q, q) + (1.0f - s) * f_old_l;
             }
         },
         args...);

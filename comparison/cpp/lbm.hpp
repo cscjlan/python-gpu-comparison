@@ -190,9 +190,9 @@ void compute_edf(dim3 *blocks, dim3 *threads, Args... args) {
             };
 
             const auto s = static_cast<ft>(nodetype[index] <= 0);
-            const auto ux = u[index];
-            const auto uy = u[index + num_values];
-            const auto rho_i = rho[index];
+            const auto ux = u[index_from_page(0)];
+            const auto uy = u[index_from_page(1)];
+            const auto rho_i = rho[index_from_page(0)];
 
             static constexpr auto N = 9;
             for (auto q = 0; q < N; q++) {
@@ -225,8 +225,7 @@ void collide(dim3 *blocks, dim3 *threads, Args... args) {
                 return index + i * num_values;
             };
 
-            const auto s1 = static_cast<ft>(nodetype[index] <= 0);
-            const auto s2 = 1.0f - s1;
+            const auto s = static_cast<ft>(nodetype[index] <= 0);
 
             const auto tau_i = tau[index];
             const auto rho_i = rho[index];
@@ -239,8 +238,8 @@ void collide(dim3 *blocks, dim3 *threads, Args... args) {
             const int i = index_from_page(0);
             const int j = index_from_page(1);
 
-            const auto ux = u[i] + s1 * Fg[i] * tau_per_rho;
-            const auto uy = u[j] + s1 * Fg[j] * tau_per_rho;
+            const auto ux = u[i] + s * Fg[i] * tau_per_rho;
+            const auto uy = u[j] + s * Fg[j] * tau_per_rho;
 
             u[i] = ux;
             u[j] = uy;
@@ -280,22 +279,31 @@ void collide(dim3 *blocks, dim3 *threads, Args... args) {
             };
             // clang-format on
 
-            for (size_t q = 0; q < N; q++) {
-                const size_t li = index_from_page(q);
-                const auto f_old = f[li];
-                const auto f_new =
-                    (1.0f - inv_tau) * f_old +
-                    third_rho_per_tau * multiplier[q] * (feq[q] + 0.3333333f);
-                feq[q] = s2 * f_old + s1 * f_new;
-            }
+            const auto fi = f[i];
+            f[i] =
+                s * ((1.0f - inv_tau) * fi + third_rho_per_tau * multiplier[0] *
+                                                 (feq[0] + 0.33333333f)) +
+                (1.0f - s) * fi;
 
             for (size_t q = 1; q < 5; q++) {
-                const auto f1 = feq[q];
-                const auto f2 = feq[q + 4];
-                const size_t li1 = index_from_page(q);
-                const size_t li2 = index_from_page(q + 4);
-                f[li1] = s2 * f1 + s1 * f2;
-                f[li2] = s2 * f2 + s1 * f1;
+                const size_t l = q + 4;
+
+                const size_t iq = index_from_page(q);
+                const size_t il = index_from_page(l);
+
+                const auto f_old_q = f[iq];
+                const auto f_old_l = f[il];
+
+                const auto f_new_l =
+                    (1.0f - inv_tau) * f_old_l +
+                    third_rho_per_tau * multiplier[l] * (feq[l] + 0.3333333f);
+
+                const auto f_new_q =
+                    (1.0f - inv_tau) * f_old_q +
+                    third_rho_per_tau * multiplier[q] * (feq[q] + 0.3333333f);
+
+                f[iq] = s * f_new_l + (1.0f - s) * f_old_q;
+                f[il] = s * f_new_q + (1.0f - s) * f_old_l;
             }
         },
         args...);

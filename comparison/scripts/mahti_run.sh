@@ -10,6 +10,6 @@ ml pytorch/2.7
 ml gcc/11.2.0
 ml cuda/11.5.0
 
-srun python3 hop_lbm.py 4000 4000 input.json hop
-srun python3 numba_lbm.py 4000 4000 input.json numba
-#srun python3 numpy_lbm.py 4000 4000 input.json numpy
+srun python3 python/hop_lbm.py 4000 4000 data/input.json hop
+srun python3 python/numba_lbm.py 4000 4000 data/input.json numba
+#srun python3 python/numpy_lbm.py 4000 4000 data/input.json numpy

@@ -151,7 +151,7 @@ def collide(f, rho, u, nodetype, tau, Fg, max_float):
 
 
 class NumbaLBM:
-    def initialize(self, host_data):
+    def initialize(self, host_data, _):
         self.threads_per_block = (32, 16)
         self.blocks_per_grid = (32, 64)
         self.max_float = np.finfo(host_data.rho.dtype).max

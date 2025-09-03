@@ -3,7 +3,7 @@ from boilerplate.runner import run
 
 
 class NumpyLBM:
-    def initialize(self, host_data):
+    def initialize(self, host_data, _):
         self.f = np.array(host_data.f)
         self.u = np.array(host_data.u)
         self.rho = np.array(host_data.rho)

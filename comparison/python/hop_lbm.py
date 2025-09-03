@@ -11,8 +11,8 @@ class Dim3(ctypes.Structure):
 
 
 class HopLBM:
-    def initialize(self, host_data):
-        self.hop = ctypes.CDLL("./lbm.so")
+    def initialize(self, host_data, inputs):
+        self.hop = ctypes.CDLL(inputs.dll)
 
         self.threads_per_block = Dim3(32, 16)
         self.blocks_per_grid = Dim3(32, 64)

@@ -22,6 +22,8 @@ class Inputs:
         with open(self.input_filename, "r") as f:
             j = json.load(f)
 
+        self.dll = j["dll"]
+        self.datadir = j["datadir"]
         self.dtype = np.float32 if j["dtype"] == "f32" else np.float64
         self.niters = j["niters"]
         self.ex = j["ex"]
@@ -57,17 +59,36 @@ class HostData:
         self.es = inputs.dtype(inputs.es)
 
     def output(self, inputs):
-        plt.imsave("u0_" + inputs.output_filename + ".png", self.u[0])
-        plt.imsave("u1_" + inputs.output_filename + ".png", self.u[1])
+        plt.imsave(inputs.datadir + "/u0_" + inputs.output_filename + ".png", self.u[0])
+        plt.imsave(inputs.datadir + "/u1_" + inputs.output_filename + ".png", self.u[1])
+        plt.imsave(inputs.datadir + "/f0_" + inputs.output_filename + ".png", self.f[0])
+        plt.imsave(inputs.datadir + "/f1_" + inputs.output_filename + ".png", self.f[1])
+        plt.imsave(inputs.datadir + "/f2_" + inputs.output_filename + ".png", self.f[2])
+        plt.imsave(inputs.datadir + "/f3_" + inputs.output_filename + ".png", self.f[3])
+        plt.imsave(inputs.datadir + "/f4_" + inputs.output_filename + ".png", self.f[4])
+        plt.imsave(inputs.datadir + "/f5_" + inputs.output_filename + ".png", self.f[5])
+        plt.imsave(inputs.datadir + "/f6_" + inputs.output_filename + ".png", self.f[6])
+        plt.imsave(inputs.datadir + "/f7_" + inputs.output_filename + ".png", self.f[7])
+        plt.imsave(inputs.datadir + "/f8_" + inputs.output_filename + ".png", self.f[8])
 
-        plt.imsave("f0_" + inputs.output_filename + ".png", self.f[0])
-        plt.imsave("f1_" + inputs.output_filename + ".png", self.f[1])
+        plt.figure()
+        x = int(self.u.shape[1] / 2)
+        plt.plot(self.u[0][:, x])
+        plt.plot(self.u[1][:, x])
+        plt.savefig(inputs.datadir + "/profile_u_" + inputs.output_filename + ".png")
 
-        plt.plot(self.u[0][:, int(self.u.shape[1] / 2)])
-        plt.savefig("profile_u_" + inputs.output_filename + ".png")
-
-        plt.plot(self.f[0][:, int(self.f.shape[1] / 2)])
-        plt.savefig("profile_f_" + inputs.output_filename + ".png")
+        plt.figure()
+        x = int(self.f.shape[1] / 2)
+        plt.plot(self.f[0][:, x])
+        plt.plot(self.f[1][:, x])
+        plt.plot(self.f[2][:, x])
+        plt.plot(self.f[3][:, x])
+        plt.plot(self.f[4][:, x])
+        plt.plot(self.f[5][:, x])
+        plt.plot(self.f[6][:, x])
+        plt.plot(self.f[7][:, x])
+        plt.plot(self.f[8][:, x])
+        plt.savefig(inputs.datadir + "/profile_f_" + inputs.output_filename + ".png")
 
 
 def run(lbm_impl):
@@ -75,7 +96,7 @@ def run(lbm_impl):
     host_data = HostData(inputs)
 
     # Initialize and run one iteration to clear the pipes
-    lbm_impl.initialize(host_data)
+    lbm_impl.initialize(host_data, inputs)
     lbm_impl.iterate()
     lbm_impl.synchronize()
 

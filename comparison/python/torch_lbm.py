@@ -2,10 +2,10 @@ import torch
 from boilerplate.runner import run
 
 
+# TODO: fix the problem with U, try to optimize
 class TorchLBM:
     def initialize(self, host_data, _):
         self.device = torch.device("cuda")
-        print(self.device)
 
         self.f = torch.from_numpy(host_data.f).to(self.device)
         self.u = torch.from_numpy(host_data.u).to(self.device)
@@ -65,22 +65,20 @@ class TorchLBM:
         self.f[s] = f_new[s]
 
     def compute_macro_vars(self):
-        self.rho = torch.sum(self.f, dim=0)
-        inv_rho = torch.where(
-            self.rho != 0.0, 1.0 / self.rho, torch.finfo(self.f.dtype).max
+        s = self.nodetype <= 0
+        self.rho = torch.where(
+            s, torch.tensordot(self.f, torch.ones((9)).to(self.device), ([0], [0])), 0.0
         )
 
-        s = self.nodetype <= 0
         self.u = torch.where(
             s,
-            inv_rho
-            * torch.cat(
+            torch.stack(
                 (
                     torch.tensordot(self.f, self.ex, ([0], [0])),
                     torch.tensordot(self.f, self.ey, ([0], [0])),
                 ),
-                axis=0,
-            ).reshape((self.u.shape)),
+            )
+            / self.rho,
             0.0,
         )
 
@@ -93,7 +91,7 @@ class TorchLBM:
 
         s = self.nodetype <= 0
         s2 = s.repeat(2, 1, 1)
-        self.u[s2] = (self.Fg * tau_per_rho)[s2]
+        self.u[s2] += (self.Fg * tau_per_rho)[s2]
 
         u2 = self.u * self.u
         u2_p_u = u2 + self.u

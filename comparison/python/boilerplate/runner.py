@@ -1,6 +1,5 @@
 import sys
 import numpy as np
-import matplotlib.pyplot as plt
 import time
 import json
 
@@ -61,30 +60,21 @@ class HostData:
     def output(self, inputs):
         prefix = inputs.datadir + "/"
         postfix = (
-            "_" + inputs.output_filename + "_" + np.dtype(inputs.dtype).name + ".png"
+            "_" + inputs.output_filename + "_" + np.dtype(inputs.dtype).name + ".csv"
         )
 
-        # plt.imsave(prefix + "u0" + postfix, self.u[0])
-        # plt.imsave(prefix + "u1" + postfix, self.u[1])
-
-        plt.figure()
-        x = int(self.u.shape[1] / 2)
-        plt.plot(self.u[0][:, x])
-        plt.plot(self.u[1][:, x])
-        plt.savefig(prefix + "profile_u" + postfix)
-
-        plt.figure()
-        x = int(self.f.shape[1] / 2)
-        plt.plot(self.f[0][:, x])
-        plt.plot(self.f[1][:, x])
-        plt.plot(self.f[2][:, x])
-        plt.plot(self.f[3][:, x])
-        plt.plot(self.f[4][:, x])
-        plt.plot(self.f[5][:, x])
-        plt.plot(self.f[6][:, x])
-        plt.plot(self.f[7][:, x])
-        plt.plot(self.f[8][:, x])
-        plt.savefig(prefix + "profile_f" + postfix)
+        np.savetxt(prefix + "rho" + postfix, self.rho, delimiter=",")
+        np.savetxt(prefix + "u0" + postfix, self.u[0], delimiter=",")
+        np.savetxt(prefix + "u1" + postfix, self.u[1], delimiter=",")
+        np.savetxt(prefix + "f0" + postfix, self.f[0], delimiter=",")
+        np.savetxt(prefix + "f1" + postfix, self.f[1], delimiter=",")
+        np.savetxt(prefix + "f2" + postfix, self.f[2], delimiter=",")
+        np.savetxt(prefix + "f3" + postfix, self.f[3], delimiter=",")
+        np.savetxt(prefix + "f4" + postfix, self.f[4], delimiter=",")
+        np.savetxt(prefix + "f5" + postfix, self.f[5], delimiter=",")
+        np.savetxt(prefix + "f6" + postfix, self.f[6], delimiter=",")
+        np.savetxt(prefix + "f7" + postfix, self.f[7], delimiter=",")
+        np.savetxt(prefix + "f8" + postfix, self.f[8], delimiter=",")
 
 
 def run(lbm_impl):

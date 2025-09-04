@@ -1,5 +1,4 @@
 from numba import cuda
-from boilerplate.runner import run
 
 
 @cuda.jit
@@ -232,4 +231,6 @@ class NumbaOriginalLBM:
 
 
 if __name__ == "__main__":
+    from boilerplate.runner import run
+
     run(NumbaOriginalLBM())

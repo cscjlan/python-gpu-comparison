@@ -1,6 +1,5 @@
 import ctypes
 import numpy as np
-from boilerplate.runner import run
 
 
 class Dim3(ctypes.Structure):
@@ -33,17 +32,17 @@ class HopLBM:
         self.ny = self.rho.shape[0]
 
         if host_data.f.dtype.itemsize == 4:
-            self.compute_edf = self.hop.LBM_compute_edf_f32
-            self.collide = self.hop.LBM_collide_f32
-            self.stream_and_bounce = self.hop.LBM_stream_and_bounce_f32
-            self.compute_macro_vars = self.hop.LBM_compute_macro_vars_f32
+            self.compute_edf_ffi = self.hop.LBM_compute_edf_f32
+            self.collide_ffi = self.hop.LBM_collide_f32
+            self.stream_and_bounce_ffi = self.hop.LBM_stream_and_bounce_f32
+            self.compute_macro_vars_ffi = self.hop.LBM_compute_macro_vars_f32
         else:
-            self.compute_edf = self.hop.LBM_compute_edf_f64
-            self.collide = self.hop.LBM_collide_f64
-            self.stream_and_bounce = self.hop.LBM_stream_and_bounce_f64
-            self.compute_macro_vars = self.hop.LBM_compute_macro_vars_f64
+            self.compute_edf_ffi = self.hop.LBM_compute_edf_f64
+            self.collide_ffi = self.hop.LBM_collide_f64
+            self.stream_and_bounce_ffi = self.hop.LBM_stream_and_bounce_f64
+            self.compute_macro_vars_ffi = self.hop.LBM_compute_macro_vars_f64
 
-        self.compute_edf.argtypes = [
+        self.compute_edf_ffi.argtypes = [
             ctypes.POINTER(Dim3),
             ctypes.POINTER(Dim3),
             ctypes.c_int,
@@ -58,7 +57,7 @@ class HopLBM:
             np.ctypeslib.as_ctypes_type(self.ex.dtype),
         ]
 
-        self.collide.argtypes = [
+        self.collide_ffi.argtypes = [
             ctypes.POINTER(Dim3),
             ctypes.POINTER(Dim3),
             ctypes.c_int,
@@ -71,7 +70,7 @@ class HopLBM:
             self.make_ndpointer(self.Fg),
         ]
 
-        self.stream_and_bounce.argtypes = [
+        self.stream_and_bounce_ffi.argtypes = [
             ctypes.POINTER(Dim3),
             ctypes.POINTER(Dim3),
             ctypes.c_int,
@@ -82,7 +81,7 @@ class HopLBM:
             self.make_ndpointer(self.ey),
         ]
 
-        self.compute_macro_vars.argtypes = [
+        self.compute_macro_vars_ffi.argtypes = [
             ctypes.POINTER(Dim3),
             ctypes.POINTER(Dim3),
             ctypes.c_int,
@@ -95,7 +94,42 @@ class HopLBM:
             self.make_ndpointer(self.ey),
         ]
 
-        self.compute_edf(
+        self.compute_edf()
+
+    def iterate(self):
+        self.collide()
+        self.stream_and_bounce()
+        self.compute_macro_vars()
+
+    def copy_to_host(self, host_data):
+        self.to_host(host_data.f, self.f)
+        self.to_host(host_data.u, self.u)
+        self.to_host(host_data.rho, self.rho)
+        self.to_host(host_data.tau, self.tau)
+        self.to_host(host_data.Fg, self.Fg)
+        self.to_host(host_data.nodetype, self.nodetype)
+        self.to_host(host_data.ex, self.ex)
+        self.to_host(host_data.ey, self.ey)
+        self.to_host(host_data.w, self.w)
+
+        return host_data
+
+    def synchronize(self):
+        self.hop.LBM_synchronize()
+
+    def finish(self):
+        self.free(self.f)
+        self.free(self.u)
+        self.free(self.rho)
+        self.free(self.tau)
+        self.free(self.Fg)
+        self.free(self.nodetype)
+        self.free(self.ex)
+        self.free(self.ey)
+        self.free(self.w)
+
+    def compute_edf(self):
+        self.compute_edf_ffi(
             ctypes.byref(self.blocks_per_grid),
             ctypes.byref(self.threads_per_block),
             self.nx,
@@ -108,6 +142,46 @@ class HopLBM:
             self.ey,
             self.w,
             self.es,
+        )
+
+    def compute_macro_vars(self):
+        self.compute_macro_vars_ffi(
+            ctypes.byref(self.blocks_per_grid),
+            ctypes.byref(self.threads_per_block),
+            self.nx,
+            self.ny,
+            self.f,
+            self.rho,
+            self.u,
+            self.nodetype,
+            self.ex,
+            self.ey,
+        )
+
+    def collide(self):
+        self.collide_ffi(
+            ctypes.byref(self.blocks_per_grid),
+            ctypes.byref(self.threads_per_block),
+            self.nx,
+            self.ny,
+            self.f,
+            self.rho,
+            self.u,
+            self.nodetype,
+            self.tau,
+            self.Fg,
+        )
+
+    def stream_and_bounce(self):
+        self.stream_and_bounce_ffi(
+            ctypes.byref(self.blocks_per_grid),
+            ctypes.byref(self.threads_per_block),
+            self.nx,
+            self.ny,
+            self.f,
+            self.nodetype,
+            self.ex,
+            self.ey,
         )
 
     def to_device(self, src: np.ndarray) -> np.ndarray:
@@ -152,69 +226,8 @@ class HopLBM:
         self.hop.LBM_free.argtypes = [ndptr]
         self.hop.LBM_free(src)
 
-    def iterate(self):
-        self.collide(
-            ctypes.byref(self.blocks_per_grid),
-            ctypes.byref(self.threads_per_block),
-            self.nx,
-            self.ny,
-            self.f,
-            self.rho,
-            self.u,
-            self.nodetype,
-            self.tau,
-            self.Fg,
-        )
-        self.stream_and_bounce(
-            ctypes.byref(self.blocks_per_grid),
-            ctypes.byref(self.threads_per_block),
-            self.nx,
-            self.ny,
-            self.f,
-            self.nodetype,
-            self.ex,
-            self.ey,
-        )
-        self.compute_macro_vars(
-            ctypes.byref(self.blocks_per_grid),
-            ctypes.byref(self.threads_per_block),
-            self.nx,
-            self.ny,
-            self.f,
-            self.rho,
-            self.u,
-            self.nodetype,
-            self.ex,
-            self.ey,
-        )
-
-    def copy_to_host(self, host_data):
-        self.to_host(host_data.f, self.f)
-        self.to_host(host_data.u, self.u)
-        self.to_host(host_data.rho, self.rho)
-        self.to_host(host_data.tau, self.tau)
-        self.to_host(host_data.Fg, self.Fg)
-        self.to_host(host_data.nodetype, self.nodetype)
-        self.to_host(host_data.ex, self.ex)
-        self.to_host(host_data.ey, self.ey)
-        self.to_host(host_data.w, self.w)
-
-        return host_data
-
-    def synchronize(self):
-        self.hop.LBM_synchronize()
-
-    def finish(self):
-        self.free(self.f)
-        self.free(self.u)
-        self.free(self.rho)
-        self.free(self.tau)
-        self.free(self.Fg)
-        self.free(self.nodetype)
-        self.free(self.ex)
-        self.free(self.ey)
-        self.free(self.w)
-
 
 if __name__ == "__main__":
+    from boilerplate.runner import run
+
     run(HopLBM())

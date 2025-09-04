@@ -1,5 +1,4 @@
 import torch
-from boilerplate.runner import run
 
 
 # TODO: fix the problem with U, try to optimize
@@ -41,6 +40,10 @@ class TorchLBM:
     def synchronize(self):
         torch.cuda.synchronize(self.device)
 
+    def finish(self):
+        pass
+
+    @torch.no_grad()
     def compute_edf(self):
         u2 = self.u * self.u
         uxy = self.u[0] * self.u[1]
@@ -64,10 +67,15 @@ class TorchLBM:
         s = (self.nodetype <= 0).repeat(9, 1, 1)
         self.f[s] = f_new[s]
 
+    @torch.no_grad()
     def compute_macro_vars(self):
         s = self.nodetype <= 0
         self.rho = torch.where(
-            s, torch.tensordot(self.f, torch.ones((9)).to(self.device), ([0], [0])), 0.0
+            s,
+            torch.tensordot(
+                self.f, torch.ones((9)).type(self.f.dtype).to(self.device), ([0], [0])
+            ),
+            0.0,
         )
 
         self.u = torch.where(
@@ -82,6 +90,7 @@ class TorchLBM:
             0.0,
         )
 
+    @torch.no_grad()
     def collide(self):
         tau_per_rho = torch.where(
             self.rho != 0.0,
@@ -90,8 +99,7 @@ class TorchLBM:
         )
 
         s = self.nodetype <= 0
-        s2 = s.repeat(2, 1, 1)
-        self.u[s2] += (self.Fg * tau_per_rho)[s2]
+        self.u += torch.where(s, self.Fg * tau_per_rho, 0.0)
 
         u2 = self.u * self.u
         u2_p_u = u2 + self.u
@@ -138,9 +146,9 @@ class TorchLBM:
         ) * (f_updated + 0.33333333)
 
         f_new = (1.0 - inv_tau) * self.f + inv_tau * f_eq
-        s = s.repeat(9, 1, 1)
-        self.f[s] = f_new[[0, 5, 6, 7, 8, 1, 2, 3, 4]][s]
+        self.f = torch.where(s, f_new[[0, 5, 6, 7, 8, 1, 2, 3, 4]], self.f)
 
+    @torch.no_grad()
     def stream_and_bounce(self):
         ny = self.tau.shape[0]
         nx = self.tau.shape[1]
@@ -156,18 +164,18 @@ class TorchLBM:
         q = q.flatten()
 
         nexti = ((ny + i - self.ey[q]) % ny).type(torch.int32)
-        nextj = ((nx + j - self.ex[q]) % nx).type(torch.int32)
+        nextj = ((nx + j + self.ex[q]) % nx).type(torch.int32)
 
         s = ((self.nodetype[i, j] <= 0) & (self.nodetype[nexti, nextj] <= 0)).flatten()
 
-        f_copy = torch.empty_like(self.f).copy_(self.f)
+        f_copy = torch.empty_like(self.f)
+        f_copy[q, nexti, nextj][s] = self.f[q + 4, i, j][s]
 
-        self.f[q, nexti, nextj][s] = f_copy[q + 4, i, j][s]
-        self.f[q + 4, i, j][s] = f_copy[q, nexti, nextj][s]
-
-    def finish(self):
-        pass
+        self.f[q + 4, i, j][s] = self.f[q, nexti, nextj][s]
+        self.f[q, nexti, nextj][s] = f_copy[q, nexti, nextj][s]
 
 
 if __name__ == "__main__":
+    from boilerplate.runner import run
+
     run(TorchLBM())

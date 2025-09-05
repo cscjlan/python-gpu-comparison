@@ -109,16 +109,20 @@ class TorchLBM:
 
         one_m_inv_tau = 1.0 - inv_tau
 
+        feq = lambda idx, a, b: (
+            one_m_inv_tau * self.f[idx] + inv_tau * a * rho_per_three * (b + 0.333333)
+        )
+
         # fmt: off
-        self.f[0][s] = (one_m_inv_tau * self.f[0] + 2.00 * inv_tau * rho_per_three * (-u2[0] - u2[1] + 0.333333    + 0.333333))[s]
-        self.f[1][s] = (one_m_inv_tau * self.f[1] + 1.00 * inv_tau * rho_per_three * (u2_p_u[0] - 0.5 * u2[1]      + 0.333333))[s]
-        self.f[2][s] = (one_m_inv_tau * self.f[2] + 1.00 * inv_tau * rho_per_three * (u2_p_u[1] - 0.5 * u2[0]      + 0.333333))[s]
-        self.f[3][s] = (one_m_inv_tau * self.f[3] + 0.25 * inv_tau * rho_per_three * (u2_p_u[0] + u2_p_u[1] + uxy3 + 0.333333))[s]
-        self.f[4][s] = (one_m_inv_tau * self.f[4] + 0.25 * inv_tau * rho_per_three * (u2_p_u[0] + u2_m_u[1] - uxy3 + 0.333333))[s]
-        self.f[5][s] = (one_m_inv_tau * self.f[5] + 1.00 * inv_tau * rho_per_three * (u2_m_u[0] - 0.5 * u2[1]      + 0.333333))[s]
-        self.f[6][s] = (one_m_inv_tau * self.f[6] + 1.00 * inv_tau * rho_per_three * (u2_m_u[1] - 0.5 * u2[0]      + 0.333333))[s]
-        self.f[7][s] = (one_m_inv_tau * self.f[7] + 0.25 * inv_tau * rho_per_three * (u2_m_u[0] + u2_m_u[1] + uxy3 + 0.333333))[s]
-        self.f[8][s] = (one_m_inv_tau * self.f[8] + 0.25 * inv_tau * rho_per_three * (u2_m_u[0] + u2_p_u[1] - uxy3 + 0.333333))[s]
+        self.f[0][s] = feq(0, 2.00, -u2[0] - u2[1] + 0.333333   )[s]
+        self.f[1][s] = feq(1, 1.00, u2_p_u[0] - 0.5 * u2[1]     )[s]
+        self.f[2][s] = feq(2, 1.00, u2_p_u[1] - 0.5 * u2[0]     )[s]
+        self.f[3][s] = feq(3, 0.25, u2_p_u[0] + u2_p_u[1] + uxy3)[s]
+        self.f[4][s] = feq(4, 0.25, u2_p_u[0] + u2_m_u[1] - uxy3)[s]
+        self.f[5][s] = feq(5, 1.00, u2_m_u[0] - 0.5 * u2[1]     )[s]
+        self.f[6][s] = feq(6, 1.00, u2_m_u[1] - 0.5 * u2[0]     )[s]
+        self.f[7][s] = feq(7, 0.25, u2_m_u[0] + u2_m_u[1] + uxy3)[s]
+        self.f[8][s] = feq(8, 0.25, u2_m_u[0] + u2_p_u[1] - uxy3)[s]
         # fmt: on
 
         for q in range(1, 5):
@@ -144,16 +148,12 @@ class TorchLBM:
         nexti = ((ny + i - self.ey[q]) % ny).type(torch.int32)
         nextj = ((nx + j + self.ex[q]) % nx).type(torch.int32)
 
-        s = (
-            ((self.nodetype[i, j] <= 0) & (self.nodetype[nexti, nextj] <= 0))
-            .flatten()
-            .type(self.f.dtype)
-        )
+        s = ((self.nodetype[i, j] <= 0) & (self.nodetype[nexti, nextj] <= 0)).flatten()
 
         f1 = self.f[q, nexti, nextj]
         f2 = self.f[q + 4, i, j]
-        self.f[q, nexti, nextj] = (1.0 - s) * f1 + s * f2
-        self.f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
+        self.f[q, nexti, nextj] = torch.where(s, f2, f1)
+        self.f[q + 4, i, j] = torch.where(s, f1, f2)
 
 
 if __name__ == "__main__":

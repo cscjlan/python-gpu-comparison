@@ -1,7 +1,6 @@
 import torch
 
 
-# TODO: fix the problem with U, try to optimize
 class TorchLBM:
     def initialize(self, host_data, _):
         self.device = torch.device("cuda")
@@ -38,7 +37,8 @@ class TorchLBM:
         return host_data
 
     def synchronize(self):
-        torch.cuda.synchronize(self.device)
+        if self.device.type == "cuda":
+            torch.cuda.synchronize(self.device)
 
     def finish(self):
         pass
@@ -70,7 +70,7 @@ class TorchLBM:
     @torch.no_grad()
     def compute_macro_vars(self):
         s = self.nodetype <= 0
-        self.rho = torch.where(
+        self.rho[:] = torch.where(
             s,
             torch.tensordot(
                 self.f, torch.ones((9)).type(self.f.dtype).to(self.device), ([0], [0])
@@ -78,7 +78,7 @@ class TorchLBM:
             0.0,
         )
 
-        self.u = torch.where(
+        self.u[:] = torch.where(
             s,
             torch.stack(
                 (
@@ -92,47 +92,13 @@ class TorchLBM:
 
     @torch.no_grad()
     def collide(self):
-        tau_per_rho = torch.where(
-            self.rho != 0.0,
-            self.tau / self.rho,
-            torch.finfo(self.f.dtype).max,
-        )
-
         s = self.nodetype <= 0
-        self.u += torch.where(s, self.Fg * tau_per_rho, 0.0)
+        self.u[:] += torch.where(s, self.Fg * self.tau / self.rho, 0.0)
 
         u2 = self.u * self.u
         u2_p_u = u2 + self.u
         u2_m_u = u2 - self.u
         uxy3 = 3.0 * self.u[0] * self.u[1]
-
-        multipliers = torch.tensor(
-            [
-                2.00,
-                1.00,
-                1.00,
-                0.25,
-                0.25,
-                1.00,
-                1.00,
-                0.25,
-                0.25,
-            ]
-        ).to(self.device)
-
-        f_updated = torch.cat(
-            (
-                -u2[0] - u2[1] + 0.333333,
-                u2_p_u[0] - 0.5 * u2[1],
-                u2_p_u[1] - 0.5 * u2[0],
-                u2_p_u[0] + u2_p_u[1] + uxy3,
-                u2_p_u[0] + u2_m_u[1] - uxy3,
-                u2_m_u[0] - 0.5 * u2[1],
-                u2_m_u[1] - 0.5 * u2[0],
-                u2_m_u[0] + u2_m_u[1] + uxy3,
-                u2_m_u[0] + u2_p_u[1] - uxy3,
-            )
-        ).reshape(self.f.shape)
 
         rho_per_three = self.rho * 0.3333333333
         inv_tau = torch.where(
@@ -141,12 +107,24 @@ class TorchLBM:
             torch.finfo(self.f.dtype).max,
         )
 
-        f_eq = torch.outer(multipliers, rho_per_three.flatten()).reshape(
-            self.f.shape
-        ) * (f_updated + 0.33333333)
+        one_m_inv_tau = 1.0 - inv_tau
 
-        f_new = (1.0 - inv_tau) * self.f + inv_tau * f_eq
-        self.f = torch.where(s, f_new[[0, 5, 6, 7, 8, 1, 2, 3, 4]], self.f)
+        # fmt: off
+        self.f[0][s] = (one_m_inv_tau * self.f[0] + 2.00 * inv_tau * rho_per_three * (-u2[0] - u2[1] + 0.333333    + 0.333333))[s]
+        self.f[1][s] = (one_m_inv_tau * self.f[1] + 1.00 * inv_tau * rho_per_three * (u2_p_u[0] - 0.5 * u2[1]      + 0.333333))[s]
+        self.f[2][s] = (one_m_inv_tau * self.f[2] + 1.00 * inv_tau * rho_per_three * (u2_p_u[1] - 0.5 * u2[0]      + 0.333333))[s]
+        self.f[3][s] = (one_m_inv_tau * self.f[3] + 0.25 * inv_tau * rho_per_three * (u2_p_u[0] + u2_p_u[1] + uxy3 + 0.333333))[s]
+        self.f[4][s] = (one_m_inv_tau * self.f[4] + 0.25 * inv_tau * rho_per_three * (u2_p_u[0] + u2_m_u[1] - uxy3 + 0.333333))[s]
+        self.f[5][s] = (one_m_inv_tau * self.f[5] + 1.00 * inv_tau * rho_per_three * (u2_m_u[0] - 0.5 * u2[1]      + 0.333333))[s]
+        self.f[6][s] = (one_m_inv_tau * self.f[6] + 1.00 * inv_tau * rho_per_three * (u2_m_u[1] - 0.5 * u2[0]      + 0.333333))[s]
+        self.f[7][s] = (one_m_inv_tau * self.f[7] + 0.25 * inv_tau * rho_per_three * (u2_m_u[0] + u2_m_u[1] + uxy3 + 0.333333))[s]
+        self.f[8][s] = (one_m_inv_tau * self.f[8] + 0.25 * inv_tau * rho_per_three * (u2_m_u[0] + u2_p_u[1] - uxy3 + 0.333333))[s]
+        # fmt: on
+
+        for q in range(1, 5):
+            f_copy = self.f[q].detach().clone()
+            self.f[q][s] = self.f[q + 4][s]
+            self.f[q + 4][s] = f_copy[s]
 
     @torch.no_grad()
     def stream_and_bounce(self):
@@ -166,13 +144,16 @@ class TorchLBM:
         nexti = ((ny + i - self.ey[q]) % ny).type(torch.int32)
         nextj = ((nx + j + self.ex[q]) % nx).type(torch.int32)
 
-        s = ((self.nodetype[i, j] <= 0) & (self.nodetype[nexti, nextj] <= 0)).flatten()
+        s = (
+            ((self.nodetype[i, j] <= 0) & (self.nodetype[nexti, nextj] <= 0))
+            .flatten()
+            .type(self.f.dtype)
+        )
 
-        f_copy = torch.empty_like(self.f)
-        f_copy[q, nexti, nextj][s] = self.f[q + 4, i, j][s]
-
-        self.f[q + 4, i, j][s] = self.f[q, nexti, nextj][s]
-        self.f[q, nexti, nextj][s] = f_copy[q, nexti, nextj][s]
+        f1 = self.f[q, nexti, nextj]
+        f2 = self.f[q + 4, i, j]
+        self.f[q, nexti, nextj] = (1.0 - s) * f1 + s * f2
+        self.f[q + 4, i, j] = (1.0 - s) * f2 + s * f1
 
 
 if __name__ == "__main__":

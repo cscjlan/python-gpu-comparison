@@ -1,5 +1,6 @@
 import numpy as np
 from boilerplate.runner import run
+import copy
 
 
 class NumpyLBM:
@@ -43,7 +44,6 @@ class NumpyLBM:
         uxy = self.u[0] * self.u[1]
         u2_sum = np.sum(u2, axis=0)
 
-        s = self.nodetype <= 0
         inv_es_sq = 1.0 / (self.es * self.es)
 
         euxy = np.outer(self.ex * self.ey, uxy).reshape(self.f.shape)
@@ -55,18 +55,16 @@ class NumpyLBM:
             np.outer(self.ex, self.u[0]) + np.outer(self.ey, self.u[1])
         ).reshape(self.f.shape)
         term2 = 0.5 * inv_es_sq * (inv_es_sq * eu2 - u2_sum)
-        f_old = self.f
         f_new = np.outer(self.w, self.rho).reshape(self.f.shape) * (1.0 + term1 + term2)
-        self.f[:] = s * f_new + (1.0 - s) * f_old
+        s = self.nodetype <= 0
+        self.f[:, s] = f_new[:, s]
 
     def compute_macro_vars(self):
-        self.rho[:] = (self.nodetype <= 0) * np.tensordot(self.f, np.ones(9), (0, 0))
-        inv_rho = np.clip(
-            1.0 / self.rho, np.finfo(self.f.dtype).min, np.finfo(self.f.dtype).max
-        )
-        self.u[:] = (
-            (self.nodetype <= 0)
-            * inv_rho
+        s = self.nodetype <= 0
+        self.rho[s] = np.tensordot(self.f, np.ones(9), (0, 0))[s]
+        inv_rho = 1.0 / self.rho
+        self.u[:, s] = (
+            inv_rho
             * np.concatenate(
                 (
                     np.tensordot(self.f, self.ex, (0, 0)),
@@ -74,81 +72,53 @@ class NumpyLBM:
                 ),
                 axis=0,
             ).reshape((self.u.shape))
-        )
+        )[:, s]
 
     def collide(self):
-        tau_per_rho = np.clip(
-            self.tau / self.rho, np.finfo(self.f.dtype).min, np.finfo(self.f.dtype).max
-        )
-
         s = self.nodetype <= 0
-        self.u[:] += s * self.Fg * tau_per_rho
+        self.u[:, s] += (self.Fg * self.tau / self.rho)[:, s]
 
-        sum_u = np.sum(self.u, axis=0)
-        dif_u = -np.diff(self.u, axis=0).reshape(self.tau.shape)
-        sum_2 = 1.5 * sum_u * sum_u
-        dif_2 = 1.5 * dif_u * dif_u
         u2 = self.u * self.u
-        u2_sum = np.sum(u2, axis=0)
-        u2_sum_m_u2 = u2_sum - 1.5 * u2
-        neg_half_u2_sum = -0.5 * u2_sum
-        neg_half_u2_sum_p_sum_2 = neg_half_u2_sum + sum_2
-        neg_half_u2_sum_p_dif_2 = neg_half_u2_sum + dif_2
-
-        multipliers = np.array(
-            [
-                2.00,
-                1.00,
-                1.00,
-                0.25,
-                0.25,
-                1.00,
-                1.00,
-                0.25,
-                0.25,
-            ]
-        )
-
-        f_updated = np.array(
-            [
-                -u2_sum + 0.33333333,
-                u2_sum_m_u2[1] + self.u[0],
-                u2_sum_m_u2[0] + self.u[1],
-                neg_half_u2_sum_p_sum_2 + sum_u,
-                neg_half_u2_sum_p_dif_2 + dif_u,
-                u2_sum_m_u2[1] - self.u[0],
-                u2_sum_m_u2[0] - self.u[1],
-                neg_half_u2_sum_p_sum_2 - sum_u,
-                neg_half_u2_sum_p_dif_2 - dif_u,
-            ]
-        )
+        u2_p_u = u2 + self.u
+        u2_m_u = u2 - self.u
+        uxy3 = 3.0 * self.u[0] * self.u[1]
 
         rho_per_three = self.rho * 0.3333333333
-        inv_tau = np.clip(
-            1.0 / self.tau, np.finfo(self.f.dtype).min, np.finfo(self.f.dtype).max
+        inv_tau = np.where(
+            self.tau != 0.0,
+            1.0 / self.tau,
+            np.finfo(self.f.dtype).max,
         )
 
-        # Mapping of indices:
-        # 0 <--> 0
-        # 1 <--> 5
-        # 2 <--> 6
-        # 3 <--> 7
-        # 4 <--> 8
-        q = np.arange(9)
-        l = ((q + 3 & 7) + 1) * (q != 0)
-        f_eq = np.outer(multipliers, rho_per_three).reshape(self.f.shape) * (
-            f_updated + 0.33333333
+        one_m_inv_tau = 1.0 - inv_tau
+
+        feq = lambda idx, a, b: (
+            one_m_inv_tau * self.f[idx] + inv_tau * a * rho_per_three * (b + 0.333333)
         )
 
-        f_l = self.f[l]
-        f_new = (1.0 - inv_tau) * f_l + inv_tau * f_eq[l]
-        self.f[q] = (1.0 - s) * f_l + s * f_new
+        self.f[0][s] = feq(0, 2.00, -u2[0] - u2[1] + 0.333333)[s]
+        self.f[1][s] = feq(1, 1.00, u2_p_u[0] - 0.5 * u2[1])[s]
+        self.f[2][s] = feq(2, 1.00, u2_p_u[1] - 0.5 * u2[0])[s]
+        self.f[3][s] = feq(3, 0.25, u2_p_u[0] + u2_p_u[1] + uxy3)[s]
+        self.f[4][s] = feq(4, 0.25, u2_p_u[0] + u2_m_u[1] - uxy3)[s]
+        self.f[5][s] = feq(5, 1.00, u2_m_u[0] - 0.5 * u2[1])[s]
+        self.f[6][s] = feq(6, 1.00, u2_m_u[1] - 0.5 * u2[0])[s]
+        self.f[7][s] = feq(7, 0.25, u2_m_u[0] + u2_m_u[1] + uxy3)[s]
+        self.f[8][s] = feq(8, 0.25, u2_m_u[0] + u2_p_u[1] - uxy3)[s]
+
+        for q in range(1, 5):
+            f_copy = copy.deepcopy(self.f[q])
+            self.f[q][s] = self.f[q + 4][s]
+            self.f[q + 4][s] = f_copy[s]
 
     def stream_and_bounce(self):
         ny = self.tau.shape[0]
         nx = self.tau.shape[1]
         q, i, j = np.meshgrid(
-            np.arange(1, 5), np.arange(ny), np.arange(nx), indexing="ij"
+            np.arange(1, 5),
+            np.arange(ny),
+            np.arange(nx),
+            indexing="ij",
         )
 
         i = i.flatten()
@@ -156,11 +126,9 @@ class NumpyLBM:
         q = q.flatten()
 
         nexti = ((ny + i - self.ey[q]) % ny).astype(np.int32)
-        nextj = ((nx + j - self.ex[q]) % nx).astype(np.int32)
+        nextj = ((nx + j + self.ex[q]) % nx).astype(np.int32)
 
-        s1 = self.nodetype[i, j] <= 0
-        s2 = self.nodetype[nexti, nextj] <= 0
-        s = s1 * s2
+        s = (self.nodetype[i, j] <= 0) & (self.nodetype[nexti, nextj] <= 0)
 
         f1 = self.f[q, nexti, nextj]
         f2 = self.f[q + 4, i, j]

@@ -11,4 +11,5 @@ nvcc -x cu $HOP_FLAGS -shared -O3 -std=c++17 \
     --extended-lambda \
     --forward-unknown-to-host-compiler \
     -fPIC \
+    -DNDEBUG \
     -o liblbm.so lbm.cpp

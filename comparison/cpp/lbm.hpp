@@ -252,53 +252,34 @@ void collide(dim3 *blocks, dim3 *threads, Args... args) {
             const auto uy2_p_uy = uy2 + uy;
             const auto uy2_m_uy = uy2 - uy;
 
-            static constexpr size_t N = 9;
-            // clang-format off
-            const ft feq[N] = {
-                -ux2 - uy2 + 0.333333f,
-                ux2_p_ux - 0.5f * uy2,
-                uy2_p_uy - 0.5f * ux2,
-                ux2_p_ux + uy2_p_uy + uxy3,
-                ux2_p_ux + uy2_m_uy - uxy3,
-                ux2_m_ux - 0.5f * uy2,
-                uy2_m_uy - 0.5f * ux2,
-                ux2_m_ux + uy2_m_uy + uxy3,
-                ux2_m_ux + uy2_p_uy - uxy3,
+
+            auto f_new = [&s, &inv_tau,
+                          &third_rho_per_tau](auto f_old, auto mul, auto feq) {
+                return (1.0f - inv_tau) * f_old +
+                       third_rho_per_tau * mul * (feq + 0.33333333f);
             };
 
-            static constexpr ft multiplier[N] = {
-                2.00f,
-                1.00f,
-                1.00f,
-                0.25f,
-                0.25f,
-                1.00f,
-                1.00f,
-                0.25f,
-                0.25f,
-            };
-            // clang-format on
+            const auto f0 = f[i];
+            f[i] =
+                s * f_new(f0, 2.00f, -ux2 - uy2 + 0.333333f) + (1.0f - s) * f0;
 
-            auto f_new = [&s, &inv_tau, &third_rho_per_tau, &feq](auto f_old,
-                                                                  auto idx) {
-                return (1.0f - inv_tau) * f_old + third_rho_per_tau *
-                                                      multiplier[idx] *
-                                                      (feq[idx] + 0.33333333f);
+            auto update_pair = [&s, &f, &f_new, &index_from_page](
+                                   auto q, auto feqq, auto feql, auto mul) {
+                const auto l = q + 4;
+                const auto iq = index_from_page(q);
+                const auto il = index_from_page(l);
+                const auto fq = f[iq];
+                const auto fl = f[il];
+                f[iq] = s * f_new(fl, mul, feql) + (1.0f - s) * fq;
+                f[il] = s * f_new(fq, mul, feqq) + (1.0f - s) * fl;
             };
 
-            const auto fi = f[i];
-            f[i] = s * f_new(fi, 0) + (1.0f - s) * fi;
-
-            // Update and swap in one loop
-            for (size_t q = 1; q < 5; q++) {
-                const size_t l = q + 4;
-                const size_t iq = index_from_page(q);
-                const size_t il = index_from_page(l);
-                const auto f_old_q = f[iq];
-                const auto f_old_l = f[il];
-                f[iq] = s * f_new(f_old_l, l) + (1.0f - s) * f_old_q;
-                f[il] = s * f_new(f_old_q, q) + (1.0f - s) * f_old_l;
-            }
+            update_pair(1, ux2_p_ux - 0.5f * uy2, ux2_m_ux - 0.5f * uy2, 1.0f);
+            update_pair(2, uy2_p_uy - 0.5f * ux2, uy2_m_uy - 0.5f * ux2, 1.0f);
+            update_pair(3, ux2_p_ux + uy2_p_uy + uxy3,
+                        ux2_m_ux + uy2_m_uy + uxy3, 0.25f);
+            update_pair(4, ux2_p_ux + uy2_m_uy - uxy3,
+                        ux2_m_ux + uy2_p_uy - uxy3, 0.25f);
         },
         args...);
 }

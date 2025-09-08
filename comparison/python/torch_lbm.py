@@ -2,8 +2,17 @@ import torch
 
 
 class TorchLBM:
-    def initialize(self, host_data, _):
+    def initialize(self, host_data, inputs):
         self.device = torch.device("cuda")
+
+        self.prof = None
+        if inputs.profile_pytorch:
+            from torch.profiler import profile, ProfilerActivity
+
+            self.prof = profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]
+            )
+            self.prof.start()
 
         self.f = torch.from_numpy(host_data.f).to(self.device)
         self.u = torch.from_numpy(host_data.u).to(self.device)
@@ -41,6 +50,9 @@ class TorchLBM:
             torch.cuda.synchronize(self.device)
 
     def finish(self):
+        if self.prof:
+            self.prof.stop()
+            self.prof.export_chrome_trace("trace.json")
         pass
 
     @torch.no_grad()

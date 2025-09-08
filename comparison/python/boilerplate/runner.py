@@ -21,6 +21,7 @@ class Inputs:
         with open(self.input_filename, "r") as f:
             j = json.load(f)
 
+        self.profile_pytorch = j["profile_pytorch"]
         self.dll = j["dll"]
         self.datadir = j["datadir"]
         self.dtype = np.float32 if j["dtype"] == "float32" else np.float64

@@ -1,4 +1,5 @@
 {
+    "profile_pytorch": false,
     "dll": "cpp/liblbm.so",
     "datadir": "data",
     "dtype": "float32",

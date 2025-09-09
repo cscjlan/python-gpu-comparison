@@ -1,6 +1,10 @@
 import torch
 
 
+def trace_handler(p):
+    p.export_chrome_trace("traces/trace_" + str(p.step_num) + ".json")
+
+
 class TorchLBM:
     def initialize(self, host_data, inputs):
         self.device = torch.device("cuda")
@@ -10,11 +14,16 @@ class TorchLBM:
             from torch.profiler import profile, ProfilerActivity
 
             self.prof = profile(
-                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                profile_memory=True,
+                schedule=torch.profiler.schedule(
+                    skip_first=10, wait=5, warmup=1, active=3, repeat=2
+                ),
+                on_trace_ready=trace_handler,
             )
-            self.prof.start()
 
         self.f = torch.from_numpy(host_data.f).to(self.device)
+        self.f_updated = torch.from_numpy(host_data.f).to(self.device)
         self.u = torch.from_numpy(host_data.u).to(self.device)
         self.rho = torch.from_numpy(host_data.rho).to(self.device)
         self.tau = torch.from_numpy(host_data.tau).to(self.device)
@@ -29,8 +38,11 @@ class TorchLBM:
 
     def iterate(self):
         self.collide()
+        torch.utils.swap_tensors(self.f, self.f_updated)
         self.stream_and_bounce()
         self.compute_macro_vars()
+        if self.prof:
+            self.prof.step()
 
     def copy_to_host(self, host_data):
         host_data.f = self.f.cpu().numpy()
@@ -50,11 +62,9 @@ class TorchLBM:
             torch.cuda.synchronize(self.device)
 
     def finish(self):
-        if self.prof:
-            self.prof.stop()
-            self.prof.export_chrome_trace("trace.json")
         pass
 
+    @torch.profiler.record_function("compute_edf")
     @torch.no_grad()
     def compute_edf(self):
         u2 = self.u * self.u
@@ -73,75 +83,71 @@ class TorchLBM:
             + torch.outer(self.ey, self.u[1].flatten())
         ).reshape(self.f.shape)
         term2 = 0.5 * inv_es_sq * (inv_es_sq * eu2 - u2_sum).reshape(self.f.shape)
-        f_new = torch.outer(self.w, self.rho.flatten()).reshape(self.f.shape) * (
+        self.f = torch.outer(self.w, self.rho.flatten()).reshape(self.f.shape) * (
             1.0 + term1 + term2
         )
-        s = (self.nodetype <= 0).repeat(9, 1, 1)
-        self.f[s] = f_new[s]
 
+        s = (self.nodetype <= 0).type(self.f.dtype)
+        r = 1.0 - s
+        self.u += s * self.Fg * self.tau / (self.rho + r)
+
+    @torch.profiler.record_function("compute_macro_vars")
     @torch.no_grad()
     def compute_macro_vars(self):
-        s = self.nodetype <= 0
-        self.rho[:] = torch.where(
-            s,
-            torch.tensordot(
-                self.f, torch.ones((9)).type(self.f.dtype).to(self.device), ([0], [0])
-            ),
-            0.0,
+        s1 = (self.nodetype <= 0).type(self.f.dtype)
+        s2 = 1.0 - s1
+        self.rho = s1 * torch.sum(self.f, dim=0)
+
+        self.u[0] = (
+            s1
+            * (self.f[1] + self.f[3] + self.f[4] - self.f[5] - self.f[7] - self.f[8])
+            / (self.rho + s2)
         )
 
-        self.u[:] = torch.where(
-            s,
-            torch.stack(
-                (
-                    torch.tensordot(self.f, self.ex, ([0], [0])),
-                    torch.tensordot(self.f, self.ey, ([0], [0])),
-                ),
-            )
-            / self.rho,
-            0.0,
+        self.u[1] = (
+            s1
+            * (self.f[2] + self.f[3] - self.f[4] - self.f[6] - self.f[7] + self.f[8])
+            / (self.rho + s2)
         )
 
+        self.u += s1 * self.Fg * self.tau / (self.rho + s2)
+
+    @torch.profiler.record_function("collide")
     @torch.no_grad()
     def collide(self):
-        s = self.nodetype <= 0
-        self.u[:] += torch.where(s, self.Fg * self.tau / self.rho, 0.0)
+        s1 = (self.nodetype <= 0).type(self.f.dtype)
+        s2 = 1.0 - s1
 
         u2 = self.u * self.u
         u2_p_u = u2 + self.u
         u2_m_u = u2 - self.u
         uxy3 = 3.0 * self.u[0] * self.u[1]
 
-        rho_per_three = self.rho * 0.3333333333
-        inv_tau = torch.where(
-            self.tau != 0.0,
-            1.0 / self.tau,
-            torch.finfo(self.f.dtype).max,
-        )
-
+        inv_tau = 1.0 / self.tau
         one_m_inv_tau = 1.0 - inv_tau
+        third_rho_per_tau = 0.3333333333 * self.rho * inv_tau
 
-        feq = lambda idx, a, b: (
-            one_m_inv_tau * self.f[idx] + inv_tau * a * rho_per_three * (b + 0.333333)
+        f_new = lambda old, mul, feq: (
+            one_m_inv_tau * old + third_rho_per_tau * mul * (feq + 0.333333)
         )
 
-        # fmt: off
-        self.f[0][s] = feq(0, 2.00, -u2[0] - u2[1] + 0.333333   )[s]
-        self.f[1][s] = feq(1, 1.00, u2_p_u[0] - 0.5 * u2[1]     )[s]
-        self.f[2][s] = feq(2, 1.00, u2_p_u[1] - 0.5 * u2[0]     )[s]
-        self.f[3][s] = feq(3, 0.25, u2_p_u[0] + u2_p_u[1] + uxy3)[s]
-        self.f[4][s] = feq(4, 0.25, u2_p_u[0] + u2_m_u[1] - uxy3)[s]
-        self.f[5][s] = feq(5, 1.00, u2_m_u[0] - 0.5 * u2[1]     )[s]
-        self.f[6][s] = feq(6, 1.00, u2_m_u[1] - 0.5 * u2[0]     )[s]
-        self.f[7][s] = feq(7, 0.25, u2_m_u[0] + u2_m_u[1] + uxy3)[s]
-        self.f[8][s] = feq(8, 0.25, u2_m_u[0] + u2_p_u[1] - uxy3)[s]
-        # fmt: on
+        def update_pair(q, feqq, feql, mul):
+            l = q + 4
+            fq = self.f[q]
+            fl = self.f[l]
+            self.f_updated[q] = s1 * f_new(fl, mul, feql) + s2 * fq
+            self.f_updated[l] = s1 * f_new(fq, mul, feqq) + s2 * fl
 
-        for q in range(1, 5):
-            f_copy = self.f[q].detach().clone()
-            self.f[q][s] = self.f[q + 4][s]
-            self.f[q + 4][s] = f_copy[s]
+        self.f_updated[0] = (
+            s1 * f_new(self.f[0], 2.00, -u2[0] - u2[1] + 0.333333) + s2 * self.f[0]
+        )
 
+        update_pair(1, u2_p_u[0] - 0.5 * u2[1], u2_m_u[0] - 0.5 * u2[1], 1.00)
+        update_pair(2, u2_p_u[1] - 0.5 * u2[0], u2_m_u[1] - 0.5 * u2[0], 1.00)
+        update_pair(3, u2_p_u[0] + u2_p_u[1] + uxy3, u2_m_u[0] + u2_m_u[1] + uxy3, 0.25)
+        update_pair(4, u2_p_u[0] + u2_m_u[1] - uxy3, u2_m_u[0] + u2_p_u[1] - uxy3, 0.25)
+
+    @torch.profiler.record_function("stream_and_bounce")
     @torch.no_grad()
     def stream_and_bounce(self):
         ny = self.tau.shape[0]
@@ -160,12 +166,59 @@ class TorchLBM:
         nexti = ((ny + i - self.ey[q]) % ny).type(torch.int32)
         nextj = ((nx + j + self.ex[q]) % nx).type(torch.int32)
 
-        s = ((self.nodetype[i, j] <= 0) & (self.nodetype[nexti, nextj] <= 0)).flatten()
+        s1 = ((self.nodetype[i, j] <= 0) & (self.nodetype[nexti, nextj] <= 0)).type(
+            self.f.dtype
+        )
+        s2 = 1.0 - s1
 
         f1 = self.f[q, nexti, nextj]
         f2 = self.f[q + 4, i, j]
-        self.f[q, nexti, nextj] = torch.where(s, f2, f1)
-        self.f[q + 4, i, j] = torch.where(s, f1, f2)
+        self.f[q, nexti, nextj] = s1 * f2 + s2 * f1
+        self.f[q + 4, i, j] = s1 * f1 + s2 * f2
+
+    @torch.profiler.record_function("collide_stream_and_bounce")
+    @torch.no_grad()
+    def collide_stream_and_bounce(self):
+        s = (self.nodetype <= 0).type(self.f.dtype)
+
+        u2 = self.u * self.u
+        u2_p_u = u2 + self.u
+        u2_m_u = u2 - self.u
+        uxy3 = 3.0 * self.u[0] * self.u[1]
+
+        inv_tau = 1.0 / self.tau
+        one_m_inv_tau = 1.0 - inv_tau
+        third_rho_per_tau = 0.3333333333 * self.rho * inv_tau
+
+        f_new = lambda old, mul, feq: (
+            one_m_inv_tau * old + third_rho_per_tau * mul * (feq + 0.333333)
+        )
+
+        ny = self.tau.shape[0]
+        nx = self.tau.shape[1]
+        i = torch.arange(ny).repeat_interleave(nx)
+        j = torch.arange(nx).repeat(ny)
+
+        # TODO still wrong
+        def stream(q, mul, feq):
+            nexti = ((ny + i - self.ey[q]) % ny).type(torch.int32)
+            nextj = ((nx + j + self.ex[q]) % nx).type(torch.int32)
+
+            s2 = s * (self.nodetype[nexti, nextj] <= 0).type(self.f.dtype).view(s.shape)
+            r2 = 1.0 - s2
+            fq = self.f[q][nexti, nextj]
+
+            return s2 * f_new(fq, mul, feq) + r2 * self.f[q]
+
+        self.f_updated[0] = stream(0, 2.00, -u2[0] - u2[1] + 0.333333)
+        self.f_updated[1] = stream(1, 1.00, u2_p_u[0] - 0.5 * u2[1])
+        self.f_updated[2] = stream(2, 1.00, u2_p_u[1] - 0.5 * u2[0])
+        self.f_updated[3] = stream(3, 0.25, u2_p_u[0] + u2_p_u[1] + uxy3)
+        self.f_updated[4] = stream(4, 0.25, u2_p_u[0] + u2_m_u[1] - uxy3)
+        self.f_updated[5] = stream(5, 1.00, u2_m_u[0] - 0.5 * u2[1])
+        self.f_updated[6] = stream(6, 1.00, u2_m_u[1] - 0.5 * u2[0])
+        self.f_updated[7] = stream(7, 0.25, u2_m_u[0] + u2_m_u[1] + uxy3)
+        self.f_updated[8] = stream(8, 0.25, u2_m_u[0] + u2_p_u[1] - uxy3)
 
 
 if __name__ == "__main__":

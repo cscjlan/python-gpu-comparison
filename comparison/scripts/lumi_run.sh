@@ -15,7 +15,8 @@ ml use /appl/local/csc/modulefiles/
 ml pytorch/2.7
 srun python3 python/torch_lbm.py 1000 1000 data/input.json torch_lumi
 
-# Numba not available on LUMI
-#srun python3 python/numba_lbm.py 1000 1000 data/input.json numba_lumi
-#srun python3 python/02_Numba_indexing.py 1000 1000 data/input.json numba_original_lumi
-#srun python3 python/numpy_lbm.py 1000 1000 data/input.json numpy_lumi
+ml LUMI
+ml partition/G
+ml gnuplot
+
+srun gnuplot scripts/plot_profile.gnuplot

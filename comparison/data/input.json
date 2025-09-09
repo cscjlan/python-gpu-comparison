@@ -1,9 +1,9 @@
 {
-    "profile_pytorch": false,
+    "profile_pytorch": true,
     "dll": "cpp/liblbm.so",
     "datadir": "data",
     "dtype": "float32",
-    "niters": 100,
+    "niters": 500,
     "ex": [0.0, 1.0, 0.0, 1.0, 1.0, -1.0, 0.0, -1.0, -1.0],
     "ey": [0.0, 0.0, 1.0, 1.0, -1.0, 0.0, -1.0, -1.0, 1.0],
     "es": 0.57735026919,

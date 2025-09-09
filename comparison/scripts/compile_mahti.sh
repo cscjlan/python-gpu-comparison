@@ -3,7 +3,7 @@
 ml gcc/11.2.0
 ml cuda/11.5.0
 
-export HOP_ROOT=${PWD}/include/hop
+export HOP_ROOT=${PWD}/cpp/include/hop
 export HOP_FLAGS="-I$HOP_ROOT -I$HOP_ROOT/source/hip -DHOP_TARGET_CUDA"
 
 nvcc -x cu $HOP_FLAGS -shared -O3 -std=c++17 \
@@ -12,4 +12,4 @@ nvcc -x cu $HOP_FLAGS -shared -O3 -std=c++17 \
     --forward-unknown-to-host-compiler \
     -fPIC \
     -DNDEBUG \
-    -o liblbm.so lbm.cpp
+    -o cpp/liblbm.so cpp/lbm.cpp

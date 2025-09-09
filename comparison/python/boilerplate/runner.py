@@ -58,24 +58,50 @@ class HostData:
         self.w = np.array(inputs.w, dtype=inputs.dtype)
         self.es = inputs.dtype(inputs.es)
 
-    def output(self, inputs):
+    def output(self, inputs, elapsed):
         prefix = inputs.datadir + "/"
         postfix = (
             "_" + inputs.output_filename + "_" + np.dtype(inputs.dtype).name + ".csv"
         )
 
-        np.savetxt(prefix + "rho" + postfix, self.rho, delimiter=",")
-        np.savetxt(prefix + "u0" + postfix, self.u[0], delimiter=",")
-        np.savetxt(prefix + "u1" + postfix, self.u[1], delimiter=",")
-        np.savetxt(prefix + "f0" + postfix, self.f[0], delimiter=",")
-        np.savetxt(prefix + "f1" + postfix, self.f[1], delimiter=",")
-        np.savetxt(prefix + "f2" + postfix, self.f[2], delimiter=",")
-        np.savetxt(prefix + "f3" + postfix, self.f[3], delimiter=",")
-        np.savetxt(prefix + "f4" + postfix, self.f[4], delimiter=",")
-        np.savetxt(prefix + "f5" + postfix, self.f[5], delimiter=",")
-        np.savetxt(prefix + "f6" + postfix, self.f[6], delimiter=",")
-        np.savetxt(prefix + "f7" + postfix, self.f[7], delimiter=",")
-        np.savetxt(prefix + "f8" + postfix, self.f[8], delimiter=",")
+        mid = self.rho.shape[1] // 2
+        profiles = np.stack(
+            (
+                np.arange(self.rho.shape[1]),
+                self.rho[:, mid],
+                self.u[0, :, mid],
+                self.u[1, :, mid],
+                self.f[0, :, mid],
+                self.f[1, :, mid],
+                self.f[2, :, mid],
+                self.f[3, :, mid],
+                self.f[4, :, mid],
+                self.f[5, :, mid],
+                self.f[6, :, mid],
+                self.f[7, :, mid],
+                self.f[8, :, mid],
+            )
+        )
+
+        np.savetxt(prefix + "profiles" + postfix, profiles.transpose(), delimiter=",")
+
+        runtimes_fname = (
+            prefix
+            + inputs.output_filename
+            + "_"
+            + str(inputs.nx)
+            + "_"
+            + str(inputs.ny)
+            + "_"
+            + str(inputs.niters)
+            + "_"
+            + np.dtype(inputs.dtype).name
+            + ".txt"
+        )
+
+        # Append runtime to a file
+        with open(runtimes_fname, "a") as f:
+            f.write(str(elapsed) + "\n")
 
 
 def run(lbm_impl):
@@ -93,11 +119,7 @@ def run(lbm_impl):
     lbm_impl.synchronize()
     t1 = time.time()
 
-    elapsed = t1 - t0
-    mlups = (inputs.ny * inputs.nx * inputs.niters * 1e-6) / elapsed
-    print("MLUPS:", mlups)
-    print("Time taken", elapsed)
-
     host_data = lbm_impl.copy_to_host(host_data)
-    host_data.output(inputs)
+    host_data.output(inputs, t1 - t0)
+
     lbm_impl.finish()

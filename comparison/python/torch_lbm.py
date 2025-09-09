@@ -34,6 +34,27 @@ class TorchLBM:
         self.w = torch.from_numpy(host_data.w).to(self.device)
         self.es = (torch.ones(()) * host_data.es).to(self.device)
 
+        nx = self.tau.shape[1]
+        ny = self.tau.shape[0]
+
+        q, i, j = torch.meshgrid(
+            torch.arange(1, 5).to(self.device),
+            torch.arange(ny).to(self.device),
+            torch.arange(nx).to(self.device),
+            indexing="ij",
+        )
+
+        i = i.flatten()
+        j = j.flatten()
+        q = q.flatten()
+
+        self.i = i
+        self.j = j
+        self.q = q
+
+        self.nexti = ((ny + i - self.ey[q]) % ny).type(torch.int32).to(self.device)
+        self.nextj = ((nx + j + self.ex[q]) % nx).type(torch.int32).to(self.device)
+
         self.compute_edf()
 
     def iterate(self):
@@ -150,75 +171,16 @@ class TorchLBM:
     @torch.profiler.record_function("stream_and_bounce")
     @torch.no_grad()
     def stream_and_bounce(self):
-        ny = self.tau.shape[0]
-        nx = self.tau.shape[1]
-        q, i, j = torch.meshgrid(
-            torch.arange(1, 5).to(self.device),
-            torch.arange(ny).to(self.device),
-            torch.arange(nx).to(self.device),
-            indexing="ij",
-        )
-
-        i = i.flatten()
-        j = j.flatten()
-        q = q.flatten()
-
-        nexti = ((ny + i - self.ey[q]) % ny).type(torch.int32)
-        nextj = ((nx + j + self.ex[q]) % nx).type(torch.int32)
-
-        s1 = ((self.nodetype[i, j] <= 0) & (self.nodetype[nexti, nextj] <= 0)).type(
-            self.f.dtype
-        )
+        s1 = (
+            (self.nodetype[self.i, self.j] <= 0)
+            & (self.nodetype[self.nexti, self.nextj] <= 0)
+        ).type(self.f.dtype)
         s2 = 1.0 - s1
 
-        f1 = self.f[q, nexti, nextj]
-        f2 = self.f[q + 4, i, j]
-        self.f[q, nexti, nextj] = s1 * f2 + s2 * f1
-        self.f[q + 4, i, j] = s1 * f1 + s2 * f2
-
-    @torch.profiler.record_function("collide_stream_and_bounce")
-    @torch.no_grad()
-    def collide_stream_and_bounce(self):
-        s = (self.nodetype <= 0).type(self.f.dtype)
-
-        u2 = self.u * self.u
-        u2_p_u = u2 + self.u
-        u2_m_u = u2 - self.u
-        uxy3 = 3.0 * self.u[0] * self.u[1]
-
-        inv_tau = 1.0 / self.tau
-        one_m_inv_tau = 1.0 - inv_tau
-        third_rho_per_tau = 0.3333333333 * self.rho * inv_tau
-
-        f_new = lambda old, mul, feq: (
-            one_m_inv_tau * old + third_rho_per_tau * mul * (feq + 0.333333)
-        )
-
-        ny = self.tau.shape[0]
-        nx = self.tau.shape[1]
-        i = torch.arange(ny).repeat_interleave(nx)
-        j = torch.arange(nx).repeat(ny)
-
-        # TODO still wrong
-        def stream(q, mul, feq):
-            nexti = ((ny + i - self.ey[q]) % ny).type(torch.int32)
-            nextj = ((nx + j + self.ex[q]) % nx).type(torch.int32)
-
-            s2 = s * (self.nodetype[nexti, nextj] <= 0).type(self.f.dtype).view(s.shape)
-            r2 = 1.0 - s2
-            fq = self.f[q][nexti, nextj]
-
-            return s2 * f_new(fq, mul, feq) + r2 * self.f[q]
-
-        self.f_updated[0] = stream(0, 2.00, -u2[0] - u2[1] + 0.333333)
-        self.f_updated[1] = stream(1, 1.00, u2_p_u[0] - 0.5 * u2[1])
-        self.f_updated[2] = stream(2, 1.00, u2_p_u[1] - 0.5 * u2[0])
-        self.f_updated[3] = stream(3, 0.25, u2_p_u[0] + u2_p_u[1] + uxy3)
-        self.f_updated[4] = stream(4, 0.25, u2_p_u[0] + u2_m_u[1] - uxy3)
-        self.f_updated[5] = stream(5, 1.00, u2_m_u[0] - 0.5 * u2[1])
-        self.f_updated[6] = stream(6, 1.00, u2_m_u[1] - 0.5 * u2[0])
-        self.f_updated[7] = stream(7, 0.25, u2_m_u[0] + u2_m_u[1] + uxy3)
-        self.f_updated[8] = stream(8, 0.25, u2_m_u[0] + u2_p_u[1] - uxy3)
+        f1 = self.f[self.q, self.nexti, self.nextj]
+        f2 = self.f[self.q + 4, self.i, self.j]
+        self.f[self.q, self.nexti, self.nextj] = s1 * f2 + s2 * f1
+        self.f[self.q + 4, self.i, self.j] = s1 * f1 + s2 * f2
 
 
 if __name__ == "__main__":

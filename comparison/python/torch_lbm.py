@@ -59,7 +59,14 @@ class TorchLBM:
 
     def iterate(self):
         self.collide()
-        torch.utils.swap_tensors(self.f, self.f_updated)
+
+        # Swap f and f_updated
+        swap = self.f.new_empty(())
+        swap.set_(self.f)
+        self.f.set_(self.f_updated)
+        self.f_updated.set_(swap)
+        # torch.utils.swap_tensors(self.f, self.f_updated)
+
         self.stream_and_bounce()
         self.compute_macro_vars()
         if self.prof:
@@ -85,8 +92,8 @@ class TorchLBM:
     def finish(self):
         pass
 
-    @torch.profiler.record_function("compute_edf")
     @torch.no_grad()
+    @torch.compile()
     def compute_edf(self):
         u2 = self.u * self.u
         uxy = self.u[0] * self.u[1]
@@ -112,8 +119,8 @@ class TorchLBM:
         r = 1.0 - s
         self.u += s * self.Fg * self.tau / (self.rho + r)
 
-    @torch.profiler.record_function("compute_macro_vars")
     @torch.no_grad()
+    @torch.compile()
     def compute_macro_vars(self):
         s1 = (self.nodetype <= 0).type(self.f.dtype)
         s2 = 1.0 - s1
@@ -133,8 +140,8 @@ class TorchLBM:
 
         self.u += s1 * self.Fg * self.tau / (self.rho + s2)
 
-    @torch.profiler.record_function("collide")
     @torch.no_grad()
+    @torch.compile()
     def collide(self):
         s1 = (self.nodetype <= 0).type(self.f.dtype)
         s2 = 1.0 - s1
@@ -168,8 +175,8 @@ class TorchLBM:
         update_pair(3, u2_p_u[0] + u2_p_u[1] + uxy3, u2_m_u[0] + u2_m_u[1] + uxy3, 0.25)
         update_pair(4, u2_p_u[0] + u2_m_u[1] - uxy3, u2_m_u[0] + u2_p_u[1] - uxy3, 0.25)
 
-    @torch.profiler.record_function("stream_and_bounce")
     @torch.no_grad()
+    @torch.compile()
     def stream_and_bounce(self):
         s1 = (
             (self.nodetype[self.i, self.j] <= 0)

@@ -7,7 +7,9 @@
 
 set terminal pngcairo size 3864,2160 enhanced font 'Helvetica,30';
 set datafile separator ',';
-set output 'data/profiles.png';
+set output outfile
+
+# filename1 and filename2 are input arguments
 
 set style line 1 linecolor rgb '#006400' linewidth 4.5 pointtype  6 pointsize 3.0;
 set style line 2 linecolor rgb '#bc8f8f' linewidth 4.5 pointtype  2 pointsize 3.0;
@@ -26,36 +28,36 @@ set multiplot layout 1, 3;
 # left, right, top, bottom
 set offset graph 0.01, graph 0.01, graph 0.01, graph 0.01;
 
-plot for [i=1:9] 'data/profiles_hop_lumi_float32.csv'   \
+plot for [i=1:9] filename1   \
         using 1:i + 4 \
         with lines \
         title 'hop f'.(i-1) \
         linestyle i, \
-     for [i=1:9] 'data/profiles_torch_lumi_float32.csv' \
+     for [i=1:9] filename2 \
         every 100::10*i \
         using 1:i + 4 \
         with points \
         title 'torch f'.(i-1) \
         linestyle i;
 
-plot 'data/profiles_hop_lumi_float32.csv'   \
+plot filename1   \
         using 1:3 \
         with lines \
         title 'hop u0' \
         linestyle 1, \
-     'data/profiles_torch_lumi_float32.csv' \
+     filename2 \
         every 40 \
         using 1:3 \
         with points \
         title 'torch u0' \
         linestyle 1;
 
-plot 'data/profiles_hop_lumi_float32.csv'   \
+plot filename1   \
         using 1:2 \
         with lines \
         title 'hop rho' \
         linestyle 1, \
-     'data/profiles_torch_lumi_float32.csv' \
+     filename2 \
         every 40 \
         using 1:2 \
         with points \
